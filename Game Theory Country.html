@@ -1,0 +1,2302 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบจำลองการตัดสินใจเชิงยุทธศาสตร์ระหว่างประเทศ</title>
+    <!-- Leaflet CSS & JS สำหรับแผนที่โลกแบบ Vector (ไม่ต้องใช้ API Key) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Chart.js สำหรับสร้างกราฟและแผนภูมิ -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- SheetJS สำหรับส่งออกตารางเป็นไฟล์ Excel (.xlsx) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- html2canvas สำหรับดาวน์โหลดแผนที่เป็น PNG -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+    <style>
+        :root {
+            --bg: #f1f5f9;
+            --card: #ffffff;
+            --primary: #0f172a;
+            --secondary: #475569;
+            --border: #cbd5e1;
+            --accent: #2563eb;
+            --nash: #eab308;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            color: var(--primary);
+            margin: 0;
+            padding: 18px;
+            line-height: 1.55;
+        }
+        .container { max-width: 1380px; margin: 0 auto; }
+
+        /* Top Bar */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 14px;
+            background: var(--card);
+            padding: 18px 24px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.07);
+            margin-bottom: 18px;
+        }
+        .title-group h1 { margin: 0; font-size: 1.5rem; }
+        .title-group .subtitle { color: var(--secondary); font-size: 0.9rem; margin-top: 3px; }
+        .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 9px 14px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: #f8fafc;
+            color: var(--primary);
+            font-weight: 600;
+            font-size: 0.86rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .btn:hover { background: #e2e8f0; }
+        .btn-add { background: #0284c7; color: #fff; border-color: #0284c7; }
+        .btn-add:hover { background: #0369a1; }
+        .btn-process { background: #4f46e5; color: #fff; border-color: #4f46e5; font-size: 0.92rem; padding: 10px 18px; }
+        .btn-process:hover { background: #4338ca; }
+        .btn-reset { background: #dc2626; color: #fff; border-color: #dc2626; }
+        .btn-reset:hover { background: #b91c1c; }
+        .btn-excel { background: #15803d; color: #fff; border-color: #15803d; }
+        .btn-excel:hover { background: #166534; }
+        .btn-lang { background: #0f172a; color: #fff; border-color: #0f172a; }
+        .btn-lang:hover { background: #334155; }
+        .btn-view.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+        /* Cards & Layout */
+        .card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.07);
+            border-top: 5px solid var(--primary);
+            margin-bottom: 18px;
+        }
+        .card h2 {
+            margin-top: 0;
+            font-size: 1.18rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .countries-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+            gap: 18px;
+            margin-bottom: 18px;
+        }
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px;
+        }
+        @media (max-width: 980px) { .grid-2 { grid-template-columns: 1fr; } }
+
+        /* Autocomplete Country Search */
+        .search-wrapper { position: relative; margin-bottom: 12px; }
+        .country-input {
+            width: 100%;
+            padding: 9px 12px;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.92rem;
+            font-weight: 600;
+            outline: none;
+        }
+        .country-input:focus { border-color: var(--accent); }
+        .autocomplete-list {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            max-height: 230px;
+            overflow-y: auto;
+            z-index: 2000;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.12);
+            display: none;
+        }
+        .autocomplete-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.88rem;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .autocomplete-item:hover { background: #eff6ff; }
+        .autocomplete-item img { width: 24px; height: 16px; object-fit: cover; border-radius: 2px; border: 1px solid #cbd5e1; }
+
+        /* Real Data Badge */
+        .real-data-panel {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin-bottom: 12px;
+            font-size: 0.8rem;
+            color: #334155;
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .control-group { margin-bottom: 10px; }
+        .control-group label {
+            display: flex;
+            justify-content: space-between;
+            font-weight: 600;
+            font-size: 0.84rem;
+            margin-bottom: 2px;
+        }
+        input[type="range"] { width: 100%; cursor: pointer; }
+        .special-controls {
+            background: #f8fafc;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            margin-top: 10px;
+        }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: bold;
+            color: #b91c1c;
+            font-size: 0.86rem;
+            cursor: pointer;
+            margin-bottom: 8px;
+        }
+        select {
+            width: 100%;
+            padding: 7px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            font-size: 0.86rem;
+        }
+
+        /* Map Section (Pure Vector Ocean Background - No API Key Needed) */
+        #worldMap {
+            width: 100%;
+            height: 440px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: #a9cde8; /* สีทะเลเข้มกว่าแผ่นดิน เพื่อให้แยกจากกันชัดเจน */
+            z-index: 1;
+        }
+        .leaflet-container { background: #a9cde8; }
+        .map-label-wrap { width: 0 !important; height: 0 !important; pointer-events: none; }
+        .map-label-wrap .map-country-label {
+            position: absolute;
+            transform: translate(-50%, -165%);
+            pointer-events: none;
+        }
+        .map-controls {
+            display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center;
+            margin-top: 12px; padding: 12px 14px;
+            background: #f8fafc; border: 1px solid var(--border); border-radius: 10px;
+        }
+        .map-controls .grp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+        .map-controls .grp-title { font-weight: 700; font-size: 0.86rem; margin-right: 4px; }
+        .seg-btn {
+            padding: 6px 12px; border: 1px solid var(--border); background: #fff;
+            border-radius: 7px; font-size: 0.84rem; font-weight: 600; cursor: pointer;
+        }
+        .seg-btn:hover { background: #e2e8f0; }
+        .seg-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+        .seg-btn:disabled { opacity: .45; cursor: not-allowed; }
+        .autocomplete-item.kb-active { background: #dbeafe; }
+        .empty-hint {
+            grid-column: 1 / -1; text-align: center; padding: 28px 18px;
+            background: #fff; border: 2px dashed var(--border); border-radius: 12px; color: var(--secondary);
+        }
+        .empty-hint .quick { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+        .map-country-label {
+            background: rgba(15, 23, 42, 0.9);
+            color: #fff;
+            border: 2px solid #fff;
+            border-radius: 6px;
+            padding: 3px 9px;
+            font-weight: bold;
+            font-size: 12px;
+            white-space: nowrap;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.45);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+        }
+        .legend-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 10px;
+        }
+        .legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            background: #f8fafc;
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+        .legend-color { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+
+        /* Status & Nash */
+        .status-banner {
+            padding: 16px;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 14px;
+            color: #fff;
+        }
+        .status-peace { background-color: #16a34a; }
+        .status-mad { background-color: #4f46e5; }
+        .status-tension { background-color: #d97706; }
+        .status-war { background-color: #dc2626; }
+
+        .desc-box {
+            background: #f8fafc;
+            border-left: 4px solid #64748b;
+            padding: 11px 14px;
+            margin-top: 12px;
+            font-size: 0.86rem;
+            color: #334155;
+            border-radius: 0 8px 8px 0;
+        }
+        .nash-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 14px;
+            margin-top: 12px;
+        }
+        .nash-box {
+            background: #fefce8;
+            border: 1px solid #fde047;
+            padding: 14px;
+            border-radius: 8px;
+            font-size: 0.88rem;
+        }
+        .nash-box h4 { margin: 0 0 6px 0; color: #854d0e; }
+
+        /* Charts & Tables */
+        .chart-wrapper {
+            position: relative;
+            height: 320px;
+            width: 100%;
+            background: #fff;
+            padding: 8px;
+        }
+        .tree-canvas-wrapper {
+            width: 100%;
+            overflow-x: auto;
+            text-align: center;
+            background: #fff;
+        }
+        #networkCanvas {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #fff;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 0.88rem;
+        }
+        .data-table th, .data-table td {
+            border: 1px solid var(--border);
+            padding: 10px;
+            text-align: center;
+        }
+        .data-table th { background-color: #f1f5f9; font-weight: 700; }
+        .nash-cell {
+            background-color: #fef08a !important;
+            font-weight: bold;
+            border: 2px solid #ca8a04 !important;
+        }
+        .badge-nash {
+            display: inline-block;
+            background: #ca8a04;
+            color: #fff;
+            font-size: 0.72rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 5px;
+        }
+        .view-toggle-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            background: var(--card);
+            padding: 14px 20px;
+            border-radius: 12px;
+            margin-bottom: 18px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.07);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- แถบหัวข้อและปุ่มควบคุมหลัก -->
+    <div class="top-bar">
+        <div class="title-group">
+            <h1 id="txt-mainTitle">ระบบจำลองการตัดสินใจเชิงยุทธศาสตร์ระหว่างประเทศ</h1>
+            <div class="subtitle" id="txt-subTitle">การวิเคราะห์ทฤษฎีเกมพหุภาคี สมดุลแนช (Nash Equilibrium) ดึงข้อมูลจริงระดับประเทศ และแผนที่ยุทธศาสตร์โลก</div>
+        </div>
+        <div class="toolbar">
+            <button class="btn btn-add" onclick="addCountrySlot()" id="btn-addCountry">➕ เพิ่มประเทศ</button>
+            <button class="btn btn-process" onclick="startProcessing()" id="btn-process">⚡ ประมวลผล</button>
+            <button class="btn btn-reset" onclick="resetSimulation()" id="btn-reset">🔄 รีเซ็ตหน้า</button>
+            <button class="btn btn-excel" onclick="exportAllTablesToExcel()" id="btn-exportAll">📊 ดาวน์โหลดทุกตาราง (Excel)</button>
+            <button class="btn btn-lang" onclick="toggleLanguage()" id="btn-lang">🌐 Switch to English</button>
+        </div>
+    </div>
+
+    <!-- ปัจจัยแวดล้อมระดับโลก -->
+    <div class="card" style="border-top-color: #7c3aed;">
+        <h2 id="txt-globalHeader" style="color: #7c3aed;">ปัจจัยแวดล้อมระดับโลก (Global & UN Factors)</h2>
+        <div class="grid-2">
+            <div class="control-group" style="margin-bottom:0;">
+                <label><span id="lbl-un">ระดับการคว่ำบาตรและแรงกดดันจาก UN ต่อผู้รุกราน</span> <span id="val-un">55</span></label>
+                <input type="range" id="un" min="0" max="100" value="55" oninput="document.getElementById('val-un').innerText=this.value">
+            </div>
+            <div class="control-group" style="margin-bottom:0;">
+                <label><span id="lbl-tension">ความตึงเครียดทางภูมิรัฐศาสตร์โลก (Global Tension)</span> <span id="val-tension">35</span></label>
+                <input type="range" id="tension" min="0" max="100" value="35" oninput="document.getElementById('val-tension').innerText=this.value">
+            </div>
+        </div>
+    </div>
+
+    <!-- การ์ดตั้งค่าประเทศ (เริ่มต้น 2 ประเทศ กด + เพิ่มได้ไม่จำกัด) -->
+    <div id="countriesContainer" class="countries-grid"></div>
+    <div style="text-align:center; margin-bottom:18px;">
+        <button class="btn btn-process" onclick="startProcessing()" id="btn-process2">⚡ ประมวลผล</button>
+    </div>
+
+    <!-- แผนที่ยุทธศาสตร์โลกแบบ Vector (ไม่ต้องใช้ API Key 100%) -->
+    <div class="card" id="mapCardSection">
+        <h2>
+            <span id="txt-mapTitle">🗺️ แผนที่ยุทธศาสตร์แสดงประเทศคู่ขัดแย้ง/เจรจา (Interactive Vector World Map)</span>
+            <button class="btn" onclick="downloadMapPNG()" id="btn-dlMap">📥 ดาวน์โหลดแผนที่ PNG</button>
+        </h2>
+        <div id="worldMap"></div>
+        <div id="mapControls" class="map-controls"></div>
+        <div id="mapLegend" class="legend-bar"></div>
+        <div class="desc-box" id="desc-map"></div>
+    </div>
+
+    <!-- ส่วนผลลัพธ์: ซ่อนไว้จนกว่าจะกดปุ่มประมวลผล -->
+    <div id="resultsArea" style="display:none;">
+    <!-- สรุปผลการประมวลผลและสมดุลแนช -->
+    <div class="card" style="border-top-color: var(--nash);">
+        <div id="statusBanner" class="status-banner status-peace">กำลังประมวลผล...</div>
+        <h2 id="txt-nashSectionTitle">การวิเคราะห์สมดุลแนชพหุภาคี (Multilateral Nash Equilibrium Analysis)</h2>
+        <div id="nashGridContainer" class="nash-grid"></div>
+        <div class="desc-box" id="desc-nashConcept"></div>
+    </div>
+
+    <!-- วิเคราะห์ทฤษฎีเกมเชิงลึก -->
+    <div class="card" id="gtAdvancedCard" style="border-top-color:#0ea5e9;">
+        <h2 id="txt-gtTitle"></h2>
+        <div id="gtAdvancedBody" style="font-size:0.92rem;"></div>
+    </div>
+
+    <!-- แถบปุ่มสลับการแสดงผล: รูปแบบตาราง / รูปแบบกราฟ -->
+    <div class="view-toggle-bar">
+        <div style="font-weight: 700; font-size: 1.05rem;" id="txt-viewModeLabel">เลือกโหมดการแสดงผลวิเคราะห์เชิงลึก:</div>
+        <div class="toolbar">
+            <button class="btn btn-view active" id="btn-viewGraph" onclick="setDisplayMode('graph')">📈 แสดงผลรูปแบบกราฟ</button>
+            <button class="btn btn-view" id="btn-viewTable" onclick="setDisplayMode('table')">📊 แสดงผลรูปแบบตาราง</button>
+            <button class="btn btn-view" id="btn-viewBoth" onclick="setDisplayMode('both')">👁️ แสดงทั้งกราฟและตาราง</button>
+        </div>
+    </div>
+
+    <!-- ส่วนแสดงผลรูปแบบกราฟ (4 รูปแบบ + ดาวน์โหลด PNG + คำอธิบายใต้กราฟ) -->
+    <div id="graphViewSection">
+        <div class="grid-2">
+            <!-- กราฟที่ 1: Radar Chart -->
+            <div class="card">
+                <h2>
+                    <span id="txt-chart1Title">1. แผนภูมิเรดาร์เปรียบเทียบขีดความสามารถ 5 มิติของทุกประเทศ</span>
+                    <button class="btn" onclick="downloadCanvasPNG('radarChart', 'multilateral_radar_chart.png')" id="btn-dlChart1">📥 ดาวน์โหลด PNG</button>
+                </h2>
+                <div class="chart-wrapper"><canvas id="radarChart"></canvas></div>
+                <div class="desc-box" id="desc-chart1"></div>
+            </div>
+
+            <!-- กราฟที่ 2: Grouped Bar Chart -->
+            <div class="card">
+                <h2>
+                    <span id="txt-chart2Title">2. แผนภูมิแท่งเปรียบเทียบผลตอบแทน (Payoff) ในแต่ละทางเลือกยุทธศาสตร์</span>
+                    <button class="btn" onclick="downloadCanvasPNG('payoffBarChart', 'multilateral_payoff_chart.png')" id="btn-dlChart2">📥 ดาวน์โหลด PNG</button>
+                </h2>
+                <div class="chart-wrapper"><canvas id="payoffBarChart"></canvas></div>
+                <div class="desc-box" id="desc-chart2"></div>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <!-- กราฟที่ 3: Escalation Line Chart -->
+            <div class="card">
+                <h2>
+                    <span id="txt-chart3Title">3. กราฟจำลองแรงจูงใจทำสงครามตามระดับความตึงเครียดโลก (0-100%)</span>
+                    <button class="btn" onclick="downloadCanvasPNG('escalationLineChart', 'escalation_curve_chart.png')" id="btn-dlChart3">📥 ดาวน์โหลด PNG</button>
+                </h2>
+                <div class="chart-wrapper"><canvas id="escalationLineChart"></canvas></div>
+                <div class="desc-box" id="desc-chart3"></div>
+            </div>
+
+            <!-- กราฟที่ 4: Strategic Network & Decision Diagram -->
+            <div class="card">
+                <h2>
+                    <span id="txt-chart4Title">4. แผนภาพโครงข่ายการตัดสินใจและดุลอำนาจ (Strategic Network Diagram)</span>
+                    <button class="btn" onclick="downloadCanvasPNG('networkCanvas', 'strategic_network_diagram.png')" id="btn-dlChart4">📥 ดาวน์โหลด PNG</button>
+                </h2>
+                <div class="tree-canvas-wrapper">
+                    <canvas id="networkCanvas" width="720" height="480"></canvas>
+                </div>
+                <div class="desc-box" id="desc-chart4"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ส่วนแสดงผลรูปแบบตาราง (3 ตาราง + ดาวน์โหลด Excel + คำอธิบายใต้ตาราง) -->
+    <div id="tableViewSection" style="display: none;">
+        <!-- ตารางที่ 1: Payoff Matrix / Strategic Profile Table -->
+        <div class="card">
+            <h2>
+                <span id="txt-table1Title">ตารางที่ 1: เมทริกซ์ผลตอบแทนทฤษฎีเกมและจุดสมดุลแนช (Payoff & Nash Equilibrium Table)</span>
+                <button class="btn btn-excel" onclick="exportSingleTableToExcel('tablePayoff', 'Payoff_Nash_Matrix')" id="btn-dlTable1">📊 ดาวน์โหลด Excel</button>
+            </h2>
+            <div style="overflow-x:auto;">
+                <table class="data-table" id="tablePayoff">
+                    <thead id="theadPayoff"></thead>
+                    <tbody id="tbodyPayoff"></tbody>
+                </table>
+            </div>
+            <div class="desc-box" id="desc-table1"></div>
+        </div>
+
+        <!-- ตารางที่ 2: Real Data & National Power Breakdown -->
+        <div class="card">
+            <h2>
+                <span id="txt-table2Title">ตารางที่ 2: ข้อมูลจริงระดับประเทศ ดัชนีอำนาจแห่งชาติ และต้นทุนสงคราม (Real Data & Power Breakdown)</span>
+                <button class="btn btn-excel" onclick="exportSingleTableToExcel('tableBreakdown', 'Country_Power_Breakdown')" id="btn-dlTable2">📊 ดาวน์โหลด Excel</button>
+            </h2>
+            <div style="overflow-x:auto;">
+                <table class="data-table" id="tableBreakdown">
+                    <thead id="theadBreakdown"></thead>
+                    <tbody id="tbodyBreakdown"></tbody>
+                </table>
+            </div>
+            <div class="desc-box" id="desc-table2"></div>
+        </div>
+
+        <!-- ตารางที่ 3: Pairwise Bilateral Conflict Matrix -->
+        <div class="card">
+            <h2>
+                <span id="txt-table3Title">ตารางที่ 3: การประเมินคู่ขัดแย้งรายคู่และโอกาสชนะศึก (Pairwise Dyadic Assessment Table)</span>
+                <button class="btn btn-excel" onclick="exportSingleTableToExcel('tablePairwise', 'Pairwise_Assessment')" id="btn-dlTable3">📊 ดาวน์โหลด Excel</button>
+            </h2>
+            <div style="overflow-x:auto;">
+                <table class="data-table" id="tablePairwise">
+                    <thead id="theadPairwise"></thead>
+                    <tbody id="tbodyPairwise"></tbody>
+                </table>
+            </div>
+            <div class="desc-box" id="desc-table3"></div>
+        </div>
+    </div>
+    </div><!-- /resultsArea -->
+</div>
+
+<script>
+// สีประจำตัวของแต่ละประเทศบนแผนที่และกราฟ
+const PALETTE = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#4f46e5', '#65a30d', '#ea580c'];
+
+// รายชื่อรัฐที่มีอาวุธนิวเคลียร์จริง (ISO Alpha-3)
+const KNOWN_NUCLEAR_STATES = new Set(['USA', 'RUS', 'CHN', 'GBR', 'FRA', 'IND', 'PAK', 'ISR', 'PRK']);
+
+const thaiDisplayNames = (typeof Intl !== 'undefined' && Intl.DisplayNames)
+    ? new Intl.DisplayNames(['th'], { type: 'region' })
+    : null;
+
+let currentLang = 'th';
+let displayMode = 'graph';
+let allWorldCountries = [];
+let worldGeoJsonData = null;
+let mapInstance = null;
+let baseWorldVectorLayer = null;
+let highlightVectorLayer = null;
+let labelMarkersGroup = null;
+let linkLayerGroup = null;
+// ตัวเลือกเส้นโยงประเทศ (ค่าเริ่มต้น: ไม่ลากเส้น)
+let linkOpts = { show: false, shape: 'straight', arrow: 'to' };  // shape: straight|curve, arrow: none|to|from|both
+
+let slots = [];        // เฉพาะช่องที่เลือกประเทศแล้ว (ใช้คำนวณ/วาดแผนที่)
+let allSlots = [];     // ทุกช่อง รวมช่องที่ยังว่าง
+let hasProcessed = false;
+let usingFallbackList = false;
+const BLANK_FLAG = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+let nextSlotId = 1;
+
+let radarChartInst = null;
+let barChartInst = null;
+let lineChartInst = null;
+
+// ปลั๊กอินเติมพื้นหลังสีขาวให้กราฟเวลาบันทึกเป็น PNG
+Chart.register({
+    id: 'whiteBgPlugin',
+    beforeDraw: (chart) => {
+        const { ctx } = chart;
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-over';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, chart.width, chart.height);
+        ctx.restore();
+    }
+});
+
+// พจนานุกรม 2 ภาษา
+const i18n = {
+    th: {
+        mainTitle: "ระบบจำลองการตัดสินใจเชิงยุทธศาสตร์ระหว่างประเทศ",
+        subTitle: "การวิเคราะห์ทฤษฎีเกมพหุภาคี สมดุลแนช (Nash Equilibrium) ดึงข้อมูลจริงระดับประเทศ และแผนที่ยุทธศาสตร์โลก",
+        addCountry: "➕ เพิ่มประเทศ",
+        processBtn: "⚡ ประมวลผล",
+        resetBtn: "🔄 รีเซ็ตหน้า",
+        exportAll: "📊 ดาวน์โหลดทุกตาราง (Excel)",
+        switchLang: "🌐 Switch to English",
+        globalHeader: "ปัจจัยแวดล้อมระดับโลก (Global & UN Factors)",
+        lblUn: "ระดับการคว่ำบาตรและแรงกดดันจาก UN ต่อผู้รุกราน",
+        lblTension: "ความตึงเครียดทางภูมิรัฐศาสตร์โลก (Global Tension)",
+        mapTitle: "🗺️ แผนที่ยุทธศาสตร์แสดงประเทศที่เลือก (Interactive Vector World Map)",
+        dlMap: "📥 ดาวน์โหลดแผนที่ PNG",
+        descMap: "<strong>คำอธิบายแผนที่ยุทธศาสตร์:</strong> วาดเส้นพรมแดนทุกประเทศทั่วโลกด้วยระบบ Vector GeoJSON โดยตรง (ไม่ต้องใช้ API Key) พร้อมระบายสีไฮไลต์ประเทศที่เลือกและแสดงป้ายชื่อประเทศบนแผนที่",
+        nashSectionTitle: "การวิเคราะห์สมดุลแนชพหุภาคี (Multilateral Nash Equilibrium Analysis)",
+        nashConcept: "<strong>คำอธิบายทฤษฎีสมดุลแนช (Nash Equilibrium):</strong> ในเกมพหุภาคีที่มีผู้เล่น N ประเทศ จุดสมดุลแนชคือชุดการตัดสินใจที่ทุกประเทศเลือก <em>การตอบสนองที่ดีที่สุด (Best Response)</em> ต่อท่าทีของประเทศอื่นๆ พร้อมกัน โดยไม่มีประเทศใดได้คะแนนเพิ่มขึ้นจากการเปลี่ยนใจเพียงลำพัง",
+        viewModeLabel: "เลือกโหมดการแสดงผลวิเคราะห์เชิงลึก:",
+        viewGraph: "📈 แสดงผลรูปแบบกราฟ",
+        viewTable: "📊 แสดงผลรูปแบบตาราง",
+        viewBoth: "👁️ แสดงทั้งกราฟและตาราง",
+        chart1Title: "1. แผนภูมิเรดาร์เปรียบเทียบขีดความสามารถ 5 มิติของทุกประเทศ",
+        chart2Title: "2. แผนภูมิแท่งเปรียบเทียบผลตอบแทน (Payoff) ในแต่ละทางเลือกยุทธศาสตร์",
+        chart3Title: "3. กราฟจำลองแรงจูงใจทำสงครามตามระดับความตึงเครียดโลก (0-100%)",
+        chart4Title: "4. แผนภาพโครงข่ายการตัดสินใจและดุลอำนาจ (Strategic Network Diagram)",
+        dlPng: "📥 ดาวน์โหลด PNG",
+        dlExcel: "📊 ดาวน์โหลด Excel",
+        descChart1: "<strong>คำอธิบายแผนภูมิเรดาร์:</strong> เปรียบเทียบค่าพารามิเตอร์ทั้ง 5 ด้านของทุกประเทศที่เลือก (ดึงจากฐานข้อมูลจริง World Bank/REST Countries และปรับแต่งได้) พื้นที่สีของประเทศใดกว้างกว่าสะท้อนความได้เปรียบเชิงโครงสร้าง",
+        descChart2: "<strong>คำอธิบายแผนภูมิแท่ง:</strong> เปรียบเทียบผลตอบแทนสุทธิ (Net Payoff) ของแต่ละประเทศใน 4 สถานการณ์หลัก ได้แก่ สันติภาพร่วมกัน, การเปิดฉากรุกฝ่ายเดียว, การตั้งรับ และการเกิดสงครามพหุภาคีเต็มรูปแบบ",
+        descChart3: "<strong>คำอธิบายกราฟเส้น:</strong> วิเคราะห์ความอ่อนไหว (Sensitivity Analysis) ของแรงจูงใจในการก่อสงครามของแต่ละประเทศเมื่อความตึงเครียดโลกเพิ่มขึ้นตั้งแต่ 0% ถึง 100% หากเส้นของประเทศใดทะลุเหนือค่า 0 แสดงว่าประเทศนั้นเริ่มเห็นว่าการใช้กำลังทหารคุ้มค่ากว่าการเจรจา",
+        descChart4: "<strong>คำอธิบายแผนภาพโครงข่ายยุทธศาสตร์:</strong> แสดงความสัมพันธ์พหุภาคีระหว่างทุกประเทศ ขนาดวงกลมสะท้อนดัชนีอำนาจแห่งชาติรวม (Effective Power) เส้นเชื่อมแสดงดุลอำนาจและท่าทีการตัดสินใจตามจุดสมดุลแนช",
+        table1Title: "ตารางที่ 1: เมทริกซ์ผลตอบแทนทฤษฎีเกมและจุดสมดุลแนช (Payoff & Nash Equilibrium Table)",
+        table2Title: "ตารางที่ 2: ข้อมูลจริงระดับประเทศ ดัชนีอำนาจแห่งชาติ และต้นทุนสงคราม (Real Data & Power Breakdown)",
+        table3Title: "ตารางที่ 3: การประเมินคู่ขัดแย้งรายคู่และโอกาสชนะศึก (Pairwise Dyadic Assessment Table)",
+        descTable1: "<strong>คำอธิบายตารางที่ 1:</strong> แสดงชุดสถานการณ์การตัดสินใจทั้งหมด ($2^N$ กรณีสำหรับผู้เล่น N ประเทศ) พร้อมคะแนนผลตอบแทนของทุกฝ่าย ช่องที่ไฮไลต์สีเหลืองและมีป้ายกำกับ <strong>Nash Equilibrium</strong> คือจุดสมดุลที่ไม่มีประเทศใดอยากเปลี่ยนกลยุทธ์เพียงฝ่ายเดียว",
+        descTable2: "<strong>คำอธิบายตารางที่ 2:</strong> แสดงข้อมูลจริงที่ดึงมาจาก API (ประชากร, GDP, สัดส่วนงบทางทหาร, สัดส่วนการค้า) พร้อมค่าดัชนีอำนาจรวมและต้นทุนความเสียหายหากเกิดสงครามของแต่ละประเทศ",
+        descTable3: "<strong>คำอธิบายตารางที่ 3:</strong> เปรียบเทียบดุลอำนาจแบบจับคู่ทวิภาคี (Pairwise Dyads) ในกลุ่มประเทศที่เลือกทั้งหมด เพื่อดูว่าหากเกิดการปะทะกันระหว่างคู่ใด ฝ่ายใดมีโอกาสชนะตามรูปแบบปกติสูงกว่ากัน",
+        lblMil: "แสนยานุภาพทางทหาร (Military Power)",
+        lblEco: "ความมั่นคงทางเศรษฐกิจ (Economic Stability)",
+        lblGain: "ผลประโยชน์เชิงยุทธศาสตร์หากชนะ (Strategic Gain)",
+        lblTrade: "การพึ่งพาการค้าระหว่างประเทศ (Trade Dependency)",
+        lblSup: "แรงสนับสนุนพันธมิตร/ประชาชน (Support)",
+        lblNuke: "ครอบครองอาวุธนิวเคลียร์ (Nuclear Arsenal)",
+        lblLead: "แนวคิดผู้นำรัฐบาล:",
+        optDove: "สายพิราบ (เน้นการทูต หลีกเลี่ยงสงคราม)",
+        optBal: "สายสมดุล (ตัดสินใจตามผลประโยชน์จริง)",
+        optHawk: "สายเหยี่ยว / ชาตินิยม (พร้อมใช้กำลังทหาร)",
+        searchPlaceholder: "พิมพ์ตัวอักษรแรกเพื่อค้นหา 240+ ประเทศ...",
+        peaceWord: "สันติภาพ",
+        warWord: "ทำสงคราม"
+    },
+    en: {
+        mainTitle: "International Strategic Decision Simulation System",
+        subTitle: "Multilateral Game Theory, Nash Equilibrium, Real Country Data Auto-Fetch & Interactive Strategic Map",
+        addCountry: "➕ Add Country",
+        processBtn: "⚡ Process Simulation",
+        resetBtn: "🔄 Reset All",
+        exportAll: "📊 Download All Tables (Excel)",
+        switchLang: "🌐 เปลี่ยนเป็นภาษาไทย",
+        globalHeader: "Global & UN Environment Factors",
+        lblUn: "UN Sanctions & International Pressure on Aggressor",
+        lblTension: "Global Geopolitical Tension",
+        mapTitle: "🗺️ Interactive Strategic Vector World Map",
+        dlMap: "📥 Download Map PNG",
+        descMap: "<strong>Strategic Map Explanation:</strong> Renders global country borders directly via Vector GeoJSON (100% API-key-free), highlighting selected nations in distinct colors with direct country name labels.",
+        nashSectionTitle: "Multilateral Nash Equilibrium Analysis",
+        nashConcept: "<strong>Nash Equilibrium Concept:</strong> In an N-player strategic game, a Nash Equilibrium is a strategy profile where every nation simultaneously plays a <em>Best Response</em> to all other nations' choices. No single country has an incentive to unilaterally deviate.",
+        viewModeLabel: "Select In-Depth Presentation Mode:",
+        viewGraph: "📈 Graph View",
+        viewTable: "📊 Table View",
+        viewBoth: "👁️ Show Both Views",
+        chart1Title: "1. 5-Dimension Capability Comparison Across All Selected Nations (Radar Chart)",
+        chart2Title: "2. Strategic Payoff Comparison by Posture (Grouped Bar Chart)",
+        chart3Title: "3. War Incentive vs. Global Tension Curve (0-100% Sensitivity Line Chart)",
+        chart4Title: "4. Multilateral Power & Decision Network Diagram",
+        dlPng: "📥 Download PNG",
+        dlExcel: "📊 Download Excel",
+        descChart1: "<strong>Radar Chart Explanation:</strong> Compares the 5 core strategic dimensions of all selected countries (auto-populated from World Bank / REST Countries data and customizable via sliders).",
+        descChart2: "<strong>Bar Chart Explanation:</strong> Compares net payoffs for each nation under 4 core strategic postures: Mutual Peace, Unilateral First-Strike, Defensive Posture, and All-Out Multilateral War.",
+        descChart3: "<strong>Line Chart Explanation:</strong> Sensitivity analysis illustrating how each country's net incentive to initiate war evolves as Global Tension rises from 0% to 100%. Crossing above 0 indicates war becomes preferable to peace.",
+        descChart4: "<strong>Network Diagram Explanation:</strong> Visualizes multilateral power interactions among all active nations. Node radius reflects Effective National Power, while connecting links display strategic posture and equilibrium alignment.",
+        table1Title: "Table 1: Game Theory Payoff & Nash Equilibrium Table",
+        table2Title: "Table 2: Auto-Fetched Real Country Data, Power Index & War Cost Breakdown",
+        table3Title: "Table 3: Pairwise Dyadic Balance of Power & Win Probability Assessment",
+        descTable1: "<strong>Table 1 Explanation:</strong> Lists strategic profiles ($2^N$ combinations for N countries) and corresponding payoffs. Rows/cells highlighted in yellow with a <strong>Nash Equilibrium</strong> badge represent stable equilibrium outcomes.",
+        descTable2: "<strong>Table 2 Explanation:</strong> Displays real macroeconomic and demographic indicators fetched from global APIs alongside calculated Effective Power indices and war cost penalties.",
+        descTable3: "<strong>Table 3 Explanation:</strong> Evaluates every bilateral pair (dyad) among the selected nations, showing relative power ratios, conventional win probabilities, and nuclear deterrence status.",
+        lblMil: "Military Power",
+        lblEco: "Economic Stability",
+        lblGain: "Strategic Gain from Victory",
+        lblTrade: "International Trade Dependency",
+        lblSup: "Public & Alliance Support",
+        lblNuke: "Possesses Nuclear Arsenal",
+        lblLead: "Leadership Posture:",
+        optDove: "Dovish (Diplomacy-focused, Risk-averse)",
+        optBal: "Balanced (Pragmatic Realpolitik)",
+        optHawk: "Hawkish / Nationalist (Aggressive)",
+        searchPlaceholder: "Type first letter to search 240+ countries...",
+        peaceWord: "Peace",
+        warWord: "War"
+    }
+};
+
+// ฐานข้อมูลสำรองกรณีออฟไลน์
+const FALLBACK_COUNTRIES = [
+    { cca2: 'US', cca3: 'USA', nameEN: 'United States', nameTH: 'สหรัฐอเมริกา', latlng: [38, -97], pop: 333000000, area: 9372610, flag: 'https://flagcdn.com/w40/us.png' },
+    { cca2: 'CN', cca3: 'CHN', nameEN: 'China', nameTH: 'จีน', latlng: [35, 105], pop: 1412000000, area: 9706961, flag: 'https://flagcdn.com/w40/cn.png' },
+    { cca2: 'RU', cca3: 'RUS', nameEN: 'Russia', nameTH: 'รัสเซีย', latlng: [60, 100], pop: 143500000, area: 17098242, flag: 'https://flagcdn.com/w40/ru.png' },
+    { cca2: 'TH', cca3: 'THA', nameEN: 'Thailand', nameTH: 'ไทย', latlng: [15, 100], pop: 71600000, area: 513120, flag: 'https://flagcdn.com/w40/th.png' },
+    { cca2: 'JP', cca3: 'JPN', nameEN: 'Japan', nameTH: 'ญี่ปุ่น', latlng: [36, 138], pop: 125000000, area: 377930, flag: 'https://flagcdn.com/w40/jp.png' },
+    { cca2: 'IN', cca3: 'IND', nameEN: 'India', nameTH: 'อินเดีย', latlng: [20, 77], pop: 1417000000, area: 3287590, flag: 'https://flagcdn.com/w40/in.png' },
+    { cca2: 'GB', cca3: 'GBR', nameEN: 'United Kingdom', nameTH: 'สหราชอาณาจักร', latlng: [54, -2], pop: 67500000, area: 242900, flag: 'https://flagcdn.com/w40/gb.png' },
+    { cca2: 'FR', cca3: 'FRA', nameEN: 'France', nameTH: 'ฝรั่งเศส', latlng: [46, 2], pop: 67900000, area: 551695, flag: 'https://flagcdn.com/w40/fr.png' },
+    { cca2: 'DE', cca3: 'DEU', nameEN: 'Germany', nameTH: 'เยอรมนี', latlng: [51, 9], pop: 83800000, area: 357114, flag: 'https://flagcdn.com/w40/de.png' },
+    { cca2: 'IL', cca3: 'ISR', nameEN: 'Israel', nameTH: 'อิสราเอล', latlng: [31.5, 34.75], pop: 9550000, area: 20770, flag: 'https://flagcdn.com/w40/il.png' },
+    { cca2: 'IR', cca3: 'IRN', nameEN: 'Iran', nameTH: 'อิหร่าน', latlng: [32, 53], pop: 88500000, area: 1648195, flag: 'https://flagcdn.com/w40/ir.png' },
+    { cca2: 'KR', cca3: 'KOR', nameEN: 'South Korea', nameTH: 'เกาหลีใต้', latlng: [37, 127.5], pop: 51600000, area: 100210, flag: 'https://flagcdn.com/w40/kr.png' },
+    { cca2: 'KP', cca3: 'PRK', nameEN: 'North Korea', nameTH: 'เกาหลีเหนือ', latlng: [40, 127], pop: 26000000, area: 120538, flag: 'https://flagcdn.com/w40/kp.png' },
+    { cca2: 'UA', cca3: 'UKR', nameEN: 'Ukraine', nameTH: 'ยูเครน', latlng: [49, 32], pop: 38000000, area: 603500, flag: 'https://flagcdn.com/w40/ua.png' }
+];
+
+// เริ่มต้นระบบเมื่อโหลดหน้าเว็บ
+window.addEventListener('DOMContentLoaded', async () => {
+    initMap();
+    renderMapControls();
+    loadWorldGeoJSON();                 // โหลดเบื้องหลัง เสร็จแล้วค่อยวาดสีใหม่
+    await loadAllCountriesList();
+    resetSimulation();
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.search-wrapper')) {
+            document.querySelectorAll('.autocomplete-list').forEach(el => el.style.display = 'none');
+        }
+    });
+});
+
+// 1. สร้างแผนที่โลกแบบ Pure Vector (ไม่พึ่งพา Tile Server จึงไม่ติด API Key Required 100%)
+function initMap() {
+    mapInstance = L.map('worldMap', {
+        center: [22, 15],
+        zoom: 2,
+        minZoom: 1,
+        maxZoom: 7,
+        worldCopyJump: true,
+        attributionControl: false
+    });
+
+    // แยกชั้น (pane) ให้ลำดับการซ้อนแน่นอน: พื้นหลัง < สีประเทศที่เลือก < เส้นโยง < ป้ายชื่อ
+    mapInstance.createPane('basePane').style.zIndex = 300;
+    mapInstance.createPane('highlightPane').style.zIndex = 350;
+    mapInstance.createPane('linkPane').style.zIndex = 450;
+    mapInstance.createPane('labelPane').style.zIndex = 700;
+    mapInstance.getPane('basePane').style.pointerEvents = 'none';
+
+    const graticuleLines = [];
+    for (let lat = -60; lat <= 80; lat += 20) graticuleLines.push([[lat, -180], [lat, 180]]);
+    for (let lng = -180; lng <= 180; lng += 30) graticuleLines.push([[-80, lng], [85, lng]]);
+    L.polyline(graticuleLines, { color: '#8fb6d6', weight: 0.8, dashArray: '3,3', interactive: false, pane: 'basePane' }).addTo(mapInstance);
+
+    baseWorldVectorLayer = L.layerGroup().addTo(mapInstance);
+    highlightVectorLayer = L.layerGroup().addTo(mapInstance);
+    linkLayerGroup = L.layerGroup().addTo(mapInstance);
+    labelMarkersGroup = L.layerGroup().addTo(mapInstance);
+
+    mapInstance.on('zoomend', drawCountryLinks);   // วาดหัวลูกศรใหม่ให้ขนาดคงที่ทุกระดับซูม
+}
+
+// 2. โหลดรายชื่อประเทศทั้งหมด ~250 ประเทศจาก REST Countries API
+async function loadAllCountriesList() {
+    try {
+        const res = await fetch('https://restcountries.com/v3.1/all?fields=name,cca2,cca3,latlng,population,area,flags');
+        if (!res.ok) throw new Error('API failed');
+        const data = await res.json();
+        allWorldCountries = data.map(c => {
+            let thName = c.name.common;
+            if (thaiDisplayNames && c.cca2) {
+                try { thName = thaiDisplayNames.of(c.cca2) || c.name.common; } catch (_) {}
+            }
+            return {
+                cca2: c.cca2,
+                cca3: c.cca3,
+                nameEN: c.name.common,
+                nameTH: thName,
+                latlng: (c.latlng && c.latlng.length === 2) ? c.latlng : [20, 0],
+                pop: c.population || 10000000,
+                area: c.area || 100000,
+                flag: (c.flags && c.flags.png) ? c.flags.png : `https://flagcdn.com/w40/${(c.cca2||'un').toLowerCase()}.png`
+            };
+        }).sort((a, b) => a.nameEN.localeCompare(b.nameEN));
+    } catch (err) {
+        allWorldCountries = FALLBACK_COUNTRIES;
+        usingFallbackList = true;
+        maybeBuildFromGeo();
+    }
+}
+
+// ถ้า REST Countries โหลดไม่ได้ ให้สร้างรายชื่อประเทศทั้งหมดจากไฟล์แผนที่แทน
+function maybeBuildFromGeo() {
+    if (!usingFallbackList || !worldGeoJsonData) return;
+    const have = new Set(allWorldCountries.map(c => c.cca3));
+    const extra = [];
+    worldGeoJsonData.features.forEach(f => {
+        const pr = f.properties || {};
+        const code = [f.id, pr.ISO_A3, pr['ISO3166-1-Alpha-3'], pr.ADM0_A3].find(v => typeof v === 'string' && /^[A-Z]{3}$/.test(v));
+        const name = pr.name || pr.ADMIN || pr.NAME;
+        if (!code || !name || have.has(code)) return;
+        const c = geoFeatureCentroid(f);
+        if (!c) return;
+        have.add(code);
+        extra.push({ cca2: '', cca3: code, nameEN: name, nameTH: name, latlng: [c.lat, c.lng], pop: 10000000, area: 100000, flag: BLANK_FLAG });
+    });
+    allWorldCountries = [...allWorldCountries, ...extra].sort((a, b) => a.nameEN.localeCompare(b.nameEN));
+    usingFallbackList = false;
+}
+
+// 3. โหลดรูปทรงพรมแดนประเทศทั่วโลก (GeoJSON) เพื่อวาดแผ่นดินทุกประเทศโดยไม่ต้องง้อ Tile Server
+async function loadWorldGeoJSON() {
+    // ไฟล์เล็กมาก่อน (โหลดเร็ว) ส่วนไฟล์ใหญ่ ~20MB ไว้เป็นตัวสำรอง
+    const urls = [
+        'https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson',
+        'https://cdn.jsdelivr.net/gh/holtzy/D3-graph-gallery@master/DATA/world.geojson',
+        'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson'
+    ];
+    for (const url of urls) {
+        try {
+            const res = await fetch(url);
+            if (!res.ok) continue;
+            const data = await res.json();
+            if (!data || !data.features || !data.features.length) continue;
+            worldGeoJsonData = data;
+            L.geoJSON(worldGeoJsonData, {
+                pane: 'basePane',
+                style: { color: '#7c8da3', weight: 0.8, fillColor: '#f3efe3', fillOpacity: 1 },
+                interactive: false
+            }).addTo(baseWorldVectorLayer);
+            maybeBuildFromGeo();
+            updateMapLayers();   // วาดสีประเทศที่เลือกอีกครั้งเมื่อรูปทรงโหลดเสร็จ
+            return;
+        } catch (_) {}
+    }
+    console.warn('โหลด GeoJSON ไม่สำเร็จ จะแสดงเป็นวงกลมแทนพื้นที่ประเทศ');
+}
+
+// ชื่ออื่นที่ชุดข้อมูลแผนที่ใช้ไม่ตรงกับ REST Countries
+const GEO_NAME_ALIASES = {
+    'united states': ['united states of america', 'usa', 'us'],
+    'russia': ['russian federation'],
+    'south korea': ['republic of korea', 'korea, republic of', 'korea'],
+    'north korea': ['democratic people\'s republic of korea', 'korea, dem. people\'s rep.'],
+    'iran': ['iran, islamic republic of', 'islamic republic of iran'],
+    'czechia': ['czech republic'],
+    'dr congo': ['democratic republic of the congo', 'congo, the democratic republic of the', 'dem. rep. congo'],
+    'republic of the congo': ['congo', 'republic of congo'],
+    'myanmar': ['burma'],
+    'vietnam': ['viet nam'],
+    'laos': ['lao pdr', "lao people's democratic republic"],
+    'syria': ['syrian arab republic'],
+    'tanzania': ['united republic of tanzania'],
+    'bolivia': ['bolivia, plurinational state of'],
+    'venezuela': ['venezuela, bolivarian republic of'],
+    'brunei': ['brunei darussalam'],
+    'eswatini': ['swaziland'],
+    'north macedonia': ['macedonia'],
+    'ivory coast': ["cote d'ivoire", "côte d'ivoire"],
+    'cape verde': ['cabo verde'],
+    'timor-leste': ['east timor'],
+    'palestine': ['west bank', 'palestinian territories'],
+    'turkey': ['türkiye', 'turkiye'],
+    'united kingdom': ['uk', 'great britain'],
+    'serbia': ['republic of serbia']
+};
+
+// จับคู่ประเทศกับ Feature ใน GeoJSON (รองรับหลายชุดข้อมูล: id / ISO_A3 / ISO3166-1-Alpha-3 / ชื่อและชื่อสำรอง)
+function matchGeoFeature(feature, countryObj) {
+    if (!feature) return false;
+    const p = feature.properties || {};
+    const iso3 = (countryObj.cca3 || '').toUpperCase();
+    const codes = [feature.id, p.ISO_A3, p.ADM0_A3, p.iso_a3, p.ISO_A3_EH, p['ISO3166-1-Alpha-3'], p.iso3, p.ISO3]
+        .filter(v => typeof v === 'string' && v && v !== '-99').map(v => v.toUpperCase());
+    if (codes.includes(iso3)) return true;
+
+    const nameEN = (countryObj.nameEN || '').toLowerCase();
+    const names = [p.ADMIN, p.admin, p.name, p.NAME, p.NAME_EN, p.sovereignt]
+        .filter(v => typeof v === 'string').map(v => v.toLowerCase());
+    if (names.includes(nameEN)) return true;
+    const aliases = GEO_NAME_ALIASES[nameEN] || [];
+    return aliases.some(a => names.includes(a));
+}
+
+function geoFeatureCentroid(feature) {
+    try { return L.geoJSON(feature).getBounds().getCenter(); } catch (_) { return null; }
+}
+
+// 4. ดึงข้อมูลจริงทางเศรษฐกิจและการทหารจาก World Bank API เมื่อผู้ใช้เลือกประเทศ
+async function fetchRealCountryIndicators(slotIndex, countryObj) {
+    const slot = allSlots[slotIndex];
+    if (!slot || !countryObj) return;
+
+    slot.country = countryObj;
+    slot.nuke = KNOWN_NUCLEAR_STATES.has(countryObj.cca3);
+    slot.realStats = { popM: (countryObj.pop / 1e6).toFixed(1), gdpB: '-', milPct: '-', tradePct: '-' };
+    syncSlots();
+    renderCountryCards();     // แสดงประเทศที่เลือกทันที ไม่ต้องรอ API
+    updateMapLayers();
+
+    const popScore = Math.min(95, Math.max(20, Math.round(Math.log10(Math.max(countryObj.pop, 100000)) * 10)));
+    let gdpVal = null;
+    let milPctGdp = null;
+    let tradePctGdp = null;
+
+    const statusEl = document.getElementById(`realdata-${slot.id}`);
+    if (statusEl) {
+        statusEl.innerHTML = currentLang === 'th'
+            ? `<span>⏳ กำลังดึงข้อมูลจริงของ <strong>${countryObj.nameTH}</strong> จาก World Bank API...</span>`
+            : `<span>⏳ Fetching live World Bank data for <strong>${countryObj.nameEN}</strong>...</span>`;
+    }
+
+    try {
+        const iso3 = countryObj.cca3;
+        const [gdpRes, milRes, trdRes] = await Promise.all([
+            fetch(`https://api.worldbank.org/v2/country/${iso3}/indicator/NY.GDP.MKTP.CD?format=json&per_page=5`),
+            fetch(`https://api.worldbank.org/v2/country/${iso3}/indicator/MS.MIL.XPND.GD.ZS?format=json&per_page=5`),
+            fetch(`https://api.worldbank.org/v2/country/${iso3}/indicator/NE.TRD.GNFS.ZS?format=json&per_page=5`)
+        ]);
+
+        const pickFirstValid = async (r) => {
+            if (!r.ok) return null;
+            const j = await r.json();
+            if (Array.isArray(j) && Array.isArray(j[1])) {
+                const found = j[1].find(item => item && item.value !== null);
+                return found ? found.value : null;
+            }
+            return null;
+        };
+
+        gdpVal = await pickFirstValid(gdpRes);
+        milPctGdp = await pickFirstValid(milRes);
+        tradePctGdp = await pickFirstValid(trdRes);
+    } catch (_) {}
+
+    if (!allSlots.includes(slot) || slot.country !== countryObj) return;   // ผู้ใช้เปลี่ยน/ลบช่องไปแล้ว
+
+    const gdpBil = gdpVal ? (gdpVal / 1e9) : (countryObj.pop / 1e6) * 12;
+    const ecoScore = Math.min(98, Math.max(20, Math.round(Math.log10(Math.max(gdpBil, 1)) * 22)));
+
+    const milPct = milPctGdp !== null ? milPctGdp : 1.8;
+    const approxMilBudget = gdpBil * (milPct / 100);
+    const milScore = Math.min(99, Math.max(15, Math.round(Math.log10(Math.max(approxMilBudget, 0.2)) * 24 + (slot.nuke ? 12 : 0))));
+
+    const trdScore = tradePctGdp !== null
+        ? Math.min(95, Math.max(15, Math.round(tradePctGdp * 0.45)))
+        : 50;
+
+    slot.mil = milScore;
+    slot.eco = ecoScore;
+    slot.trade = trdScore;
+    slot.gain = Math.min(90, Math.max(30, Math.round((100 - trdScore) * 0.55 + 25)));
+    slot.sup = Math.min(90, Math.max(35, Math.round((ecoScore * 0.5) + (popScore * 0.3))));
+    slot.realStats = {
+        popM: (countryObj.pop / 1e6).toFixed(1),
+        gdpB: gdpBil.toFixed(1),
+        milPct: milPct.toFixed(2),
+        tradePct: tradePctGdp !== null ? tradePctGdp.toFixed(1) : 'N/A'
+    };
+
+    renderCountryCards();
+    updateMapLayers();
+    processSimulation();
+}
+
+// 5. เพิ่มช่องเลือกประเทศใหม่ (ไม่จำกัดจำนวน)
+function syncSlots() { slots = allSlots.filter(x => x.country); }
+
+function makeSlot() {
+    return {
+        id: nextSlotId++,
+        color: PALETTE[allSlots.length % PALETTE.length],
+        country: null,
+        mil: 65, eco: 70, gain: 55, trade: 45, sup: 60,
+        nuke: false, lead: 0,
+        realStats: { popM: '-', gdpB: '-', milPct: '-', tradePct: '-' }
+    };
+}
+
+function addCountrySlot(defaultIso3 = null) {
+    allSlots.push(makeSlot());
+    const idx = allSlots.length - 1;
+    if (defaultIso3) {
+        const c = allWorldCountries.find(x => x.cca3 === defaultIso3) || FALLBACK_COUNTRIES.find(x => x.cca3 === defaultIso3);
+        if (c) { fetchRealCountryIndicators(idx, c); return; }
+    }
+    renderCountryCards();
+    // เลื่อนไปที่ช่องใหม่และโฟกัสให้พิมพ์ได้ทันที
+    const inp = document.getElementById(`search-input-${allSlots[idx].id}`);
+    if (inp) { inp.scrollIntoView({ behavior: 'smooth', block: 'center' }); inp.focus(); }
+}
+
+function removeCountrySlot(slotId) {
+    if (allSlots.length <= 2) return;
+    allSlots = allSlots.filter(x => x.id !== slotId);
+    allSlots.forEach((x, i) => x.color = PALETTE[i % PALETTE.length]);
+    syncSlots();
+    renderCountryCards();
+    updateMapLayers();
+    processSimulation();
+}
+
+function resetSimulation() {
+    document.getElementById('un').value = 55;
+    document.getElementById('val-un').innerText = '55';
+    document.getElementById('tension').value = 35;
+    document.getElementById('val-tension').innerText = '35';
+
+    // หน้าเริ่มต้น: ช่องเลือกประเทศว่าง 2 ช่อง และยังไม่แสดงกราฟ/ตาราง
+    nextSlotId = 1;
+    allSlots = [];
+    allSlots.push(makeSlot());
+    allSlots.push(makeSlot());
+    syncSlots();
+    hasProcessed = false;
+    displayMode = 'graph';
+    hideResults();
+    renderCountryCards();
+    updateMapLayers();
+}
+
+function renderCountryCards() {
+    const container = document.getElementById('countriesContainer');
+    const t = i18n[currentLang];
+
+    if (allSlots.length === 0) return;
+
+    container.innerHTML = allSlots.map((s, pos) => {
+        const th = currentLang === 'th';
+        const canRemove = allSlots.length > 2;
+        if (!s.country) {
+            return `
+        <div class="card" style="border-top-color: ${s.color}; margin-bottom:0;">
+            <h2 style="color: ${s.color};">
+                <span>${th ? `ช่องที่ ${pos + 1}: ยังไม่ได้เลือกประเทศ` : `Slot ${pos + 1}: no country selected`}</span>
+                ${canRemove ? `<button class="btn" style="padding:4px 9px; color:#dc2626;" onclick="removeCountrySlot(${s.id})">✖</button>` : ''}
+            </h2>
+            <div class="search-wrapper">
+                <input type="text" class="country-input" id="search-input-${s.id}" autocomplete="off"
+                    placeholder="${th ? 'พิมพ์ตัวอักษรแรกของชื่อประเทศ เช่น U, C, J ...' : 'Type the first letter, e.g. U, C, J ...'}"
+                    onfocus="showCountryAutocomplete(${s.id}, this.value)"
+                    oninput="showCountryAutocomplete(${s.id}, this.value)"
+                    onkeydown="countryKeydown(event, ${s.id})">
+                <div class="autocomplete-list" id="auto-list-${s.id}"></div>
+            </div>
+            <div style="color:#64748b; font-size:0.88rem;">${th ? '🔎 เลือกประเทศจากรายการเพื่อเริ่มตั้งค่าและแสดงบนแผนที่' : '🔎 Choose a country from the list to configure it and show it on the map'}</div>
+        </div>`;
+        }
+        const idx = slots.indexOf(s);
+        const cName = currentLang === 'th' ? `${s.country.nameTH} (${s.country.nameEN})` : `${s.country.nameEN}`;
+        const removeBtn = canRemove
+            ? `<button class="btn" style="padding:4px 9px; color:#dc2626;" onclick="removeCountrySlot(${s.id})">✖</button>`
+            : '';
+
+        const statsTxt = currentLang === 'th'
+            ? `<span>👥 ประชากร: <strong>${s.realStats.popM}M</strong></span>
+               <span>💰 GDP: <strong>$${s.realStats.gdpB}B</strong></span>
+               <span>🛡️ งบกลาโหม: <strong>${s.realStats.milPct}% GDP</strong></span>
+               <span>🚢 การค้า: <strong>${s.realStats.tradePct}% GDP</strong></span>`
+            : `<span>👥 Pop: <strong>${s.realStats.popM}M</strong></span>
+               <span>💰 GDP: <strong>$${s.realStats.gdpB}B</strong></span>
+               <span>🛡️ Mil Exp: <strong>${s.realStats.milPct}% GDP</strong></span>
+               <span>🚢 Trade: <strong>${s.realStats.tradePct}% GDP</strong></span>`;
+
+        return `
+        <div class="card" style="border-top-color: ${s.color}; margin-bottom:0;">
+            <h2 style="color: ${s.color};">
+                <span style="display:flex; align-items:center; gap:8px;">
+                    <img src="${s.country.flag}" alt="flag" style="width:28px; height:19px; border-radius:3px; border:1px solid #cbd5e1;">
+                    ${cName}
+                </span>
+                ${removeBtn}
+            </h2>
+
+            <div class="search-wrapper">
+                <input type="text" class="country-input"
+                    id="search-input-${s.id}"
+                    value="${cName}"
+                    placeholder="${t.searchPlaceholder}"
+                    onfocus="this.select(); showCountryAutocomplete(${s.id}, '')"
+                    oninput="showCountryAutocomplete(${s.id}, this.value)"
+                    onkeydown="countryKeydown(event, ${s.id})" autocomplete="off">
+                <div class="autocomplete-list" id="auto-list-${s.id}"></div>
+            </div>
+
+            <div class="real-data-panel" id="realdata-${s.id}">${statsTxt}</div>
+
+            <div class="control-group">
+                <label><span>${t.lblMil}</span> <span id="val-mil-${s.id}">${s.mil}</span></label>
+                <input type="range" min="10" max="100" value="${s.mil}" oninput="updateSlotParam(${s.id}, 'mil', this.value)">
+            </div>
+            <div class="control-group">
+                <label><span>${t.lblEco}</span> <span id="val-eco-${s.id}">${s.eco}</span></label>
+                <input type="range" min="10" max="100" value="${s.eco}" oninput="updateSlotParam(${s.id}, 'eco', this.value)">
+            </div>
+            <div class="control-group">
+                <label><span>${t.lblGain}</span> <span id="val-gain-${s.id}">${s.gain}</span></label>
+                <input type="range" min="0" max="100" value="${s.gain}" oninput="updateSlotParam(${s.id}, 'gain', this.value)">
+            </div>
+            <div class="control-group">
+                <label><span>${t.lblTrade}</span> <span id="val-trade-${s.id}">${s.trade}</span></label>
+                <input type="range" min="0" max="100" value="${s.trade}" oninput="updateSlotParam(${s.id}, 'trade', this.value)">
+            </div>
+            <div class="control-group">
+                <label><span>${t.lblSup}</span> <span id="val-sup-${s.id}">${s.sup}</span></label>
+                <input type="range" min="0" max="100" value="${s.sup}" oninput="updateSlotParam(${s.id}, 'sup', this.value)">
+            </div>
+
+            <div class="special-controls">
+                <label class="checkbox-label">
+                    <input type="checkbox" ${s.nuke ? 'checked' : ''} onchange="updateSlotNuke(${s.id}, this.checked)">
+                    <span>${t.lblNuke}</span>
+                </label>
+                <label style="font-size:0.82rem; font-weight:600; display:block; margin-bottom:4px;">${t.lblLead}</label>
+                <select onchange="updateSlotLead(${s.id}, this.value)">
+                    <option value="-15" ${s.lead === -15 ? 'selected' : ''}>${t.optDove}</option>
+                    <option value="0" ${s.lead === 0 ? 'selected' : ''}>${t.optBal}</option>
+                    <option value="25" ${s.lead === 25 ? 'selected' : ''}>${t.optHawk}</option>
+                </select>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function showCountryAutocomplete(slotId, query) {
+    document.querySelectorAll('.autocomplete-list').forEach(el => el.style.display = 'none');
+    const listEl = document.getElementById(`auto-list-${slotId}`);
+    if (!listEl) return;
+
+    const q = (query || '').trim().toLowerCase();
+    const starts = c => c.nameEN.toLowerCase().startsWith(q) || c.nameTH.toLowerCase().startsWith(q) ||
+                        (q.length >= 2 && c.cca3.toLowerCase().startsWith(q));
+    const contains = c => c.nameEN.toLowerCase().includes(q) || c.nameTH.toLowerCase().includes(q);
+
+    // พิมพ์ตัวอักษรเดียว = แสดงเฉพาะประเทศที่ขึ้นต้นด้วยตัวนั้น / พิมพ์ 2 ตัวขึ้นไป = ขึ้นต้นก่อน แล้วตามด้วยที่มีคำนั้นอยู่ข้างใน
+    const matched = allWorldCountries.filter(c => !q || starts(c) || (q.length >= 2 && contains(c)))
+        .sort((a, b) => {
+            const as = !q || starts(a), bs = !q || starts(b);
+            if (as && !bs) return -1;
+            if (!as && bs) return 1;
+            return a.nameEN.localeCompare(b.nameEN);
+        });
+
+    if (matched.length === 0) {
+        listEl.innerHTML = `<div class="autocomplete-item" style="color:#94a3b8; cursor:default;">${currentLang === 'th' ? 'ไม่พบประเทศที่ตรงกัน' : 'No matching country'}</div>`;
+        listEl.style.display = 'block';
+        return;
+    }
+
+    listEl.innerHTML = matched.map((c, i) => `
+        <div class="autocomplete-item ${i === 0 && q ? 'kb-active' : ''}" onmousedown="event.preventDefault()" onclick="selectCountryForSlot(${slotId}, '${c.cca3}')">
+            <img src="${c.flag}" alt="${c.cca2}">
+            <span><strong>${c.nameTH}</strong> (${c.nameEN}) - <small style="color:#64748b;">${c.cca3}</small></span>
+        </div>
+    `).join('');
+    listEl.style.display = 'block';
+}
+
+// ใช้ลูกศรขึ้น/ลง + Enter เลือกประเทศ, Esc ปิดรายการ
+function countryKeydown(e, slotId) {
+    const list = document.getElementById(`auto-list-${slotId}`);
+    if (!list) return;
+    if (e.key === 'Escape') { list.style.display = 'none'; return; }
+    const items = [...list.querySelectorAll('.autocomplete-item')].filter(x => x.hasAttribute('onclick'));
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (list.style.display === 'none') { showCountryAutocomplete(slotId, e.target.value); return; }
+        if (!items.length) return;
+        let i = items.findIndex(x => x.classList.contains('kb-active'));
+        items.forEach(x => x.classList.remove('kb-active'));
+        i = e.key === 'ArrowDown' ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
+        items[i].classList.add('kb-active');
+        items[i].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const cur = items.find(x => x.classList.contains('kb-active')) || items[0];
+        if (cur) cur.click();
+    }
+}
+
+function selectCountryForSlot(slotId, cca3) {
+    const slotIdx = allSlots.findIndex(s => s.id === slotId);
+    const countryObj = allWorldCountries.find(c => c.cca3 === cca3);
+    if (slotIdx === -1 || !countryObj) return;
+
+    const listEl = document.getElementById(`auto-list-${slotId}`);
+    if (listEl) listEl.style.display = 'none';
+
+    fetchRealCountryIndicators(slotIdx, countryObj);
+}
+
+function updateSlotParam(slotId, field, val) {
+    const s = slots.find(item => item.id === slotId);
+    if (!s) return;
+    s[field] = parseInt(val);
+    const lbl = document.getElementById(`val-${field}-${slotId}`);
+    if (lbl) lbl.innerText = val;
+    processSimulation();
+}
+
+function updateSlotNuke(slotId, checked) {
+    const s = slots.find(item => item.id === slotId);
+    if (!s) return;
+    s.nuke = checked;
+    processSimulation();
+}
+
+function updateSlotLead(slotId, val) {
+    const s = slots.find(item => item.id === slotId);
+    if (!s) return;
+    s.lead = parseInt(val);
+    processSimulation();
+}
+
+// 6. อัปเดตแผนที่โลก ไฮไลต์สีพรมแดนประเทศที่เลือก และวางป้ายชื่อประเทศบนแผนที่
+function updateMapLayers() {
+    if (!mapInstance) return;
+    highlightVectorLayer.clearLayers();
+    labelMarkersGroup.clearLayers();
+
+    const bounds = [];
+
+    slots.forEach((s, idx) => {
+        const cLabel = currentLang === 'th' ? s.country.nameTH : s.country.nameEN;
+        let [lat, lng] = s.country.latlng;
+        let drewShape = false;
+
+        // 1) ระบายสีพื้นที่ประเทศ
+        if (worldGeoJsonData && worldGeoJsonData.features) {
+            const feature = worldGeoJsonData.features.find(f => matchGeoFeature(f, s.country));
+            if (feature) {
+                L.geoJSON(feature, {
+                    pane: 'highlightPane',
+                    interactive: false,
+                    style: { color: '#111827', weight: 1.6, fillColor: s.color, fillOpacity: 0.85 }
+                }).addTo(highlightVectorLayer);
+                drewShape = true;
+            }
+        }
+        // ถ้ายังไม่มีรูปทรง (ไฟล์ยังโหลดไม่เสร็จ/ไม่พบ) วาดวงกลมแทนเพื่อไม่ให้หายไป
+        if (!drewShape) {
+            const radiusM = Math.min(1500000, Math.max(120000, Math.sqrt((s.country.area || 100000) / Math.PI) * 1000));
+            L.circle([lat, lng], {
+                pane: 'highlightPane', radius: radiusM, interactive: false,
+                color: '#111827', weight: 1.6, fillColor: s.color, fillOpacity: 0.75
+            }).addTo(highlightVectorLayer);
+        }
+
+        bounds.push([lat, lng]);
+
+        // 2) จุดและป้ายชื่อประเทศ (อยู่ชั้นบนสุดเสมอ)
+        L.circleMarker([lat, lng], {
+            pane: 'labelPane', radius: 7, fillColor: s.color, color: '#ffffff', weight: 2.5, fillOpacity: 1, interactive: false
+        }).addTo(labelMarkersGroup);
+
+        const labelIcon = L.divIcon({
+            className: 'map-label-wrap',
+            iconSize: [0, 0],
+            html: `<div class="map-country-label" style="background:${s.color};">${cLabel}</div>`
+        });
+        L.marker([lat, lng], { icon: labelIcon, pane: 'labelPane', interactive: false, keyboard: false }).addTo(labelMarkersGroup);
+    });
+
+    if (bounds.length > 1) {
+        mapInstance.fitBounds(bounds, { padding: [70, 70], maxZoom: 4 });
+    } else if (bounds.length === 1) {
+        mapInstance.setView(bounds[0], 4);
+    } else {
+        mapInstance.setView([22, 15], 2);
+    }
+
+    drawCountryLinks();
+
+    const legendEl = document.getElementById('mapLegend');
+    legendEl.innerHTML = slots.length === 0
+        ? `<div class="legend-item" style="color:#64748b;">${currentLang === 'th' ? 'ยังไม่ได้เลือกประเทศ' : 'No countries selected'}</div>`
+        : slots.map((s, i) => {
+            const name = currentLang === 'th' ? `${s.country.nameTH} (${s.country.nameEN})` : s.country.nameEN;
+            return `<div class="legend-item">
+                <span class="legend-color" style="background:${s.color};"></span>
+                <span>${name} ${s.nuke ? '☢️' : ''}</span>
+            </div>`;
+        }).join('');
+
+    renderMapControls();
+}
+
+// ---------- เส้นโยงประเทศ (ตรง/โค้ง, ลูกศรไป/มา/ไป-มา) ----------
+function setLinkOpt(key, val) {
+    linkOpts[key] = val;
+    renderMapControls();
+    drawCountryLinks();
+}
+
+function renderMapControls() {
+    const box = document.getElementById('mapControls');
+    if (!box) return;
+    const th = currentLang === 'th';
+    const seg = (key, val, label, disabled = false) =>
+        `<button class="seg-btn ${linkOpts[key] === val ? 'active' : ''}" ${disabled ? 'disabled' : ''} onclick="setLinkOpt('${key}', ${typeof val === 'boolean' ? val : `'${val}'`})">${label}</button>`;
+    const off = !linkOpts.show;
+    box.innerHTML = `
+        <div class="grp"><span class="grp-title">${th ? '🔗 เส้นโยงประเทศ:' : '🔗 Link lines:'}</span>
+            ${seg('show', false, th ? 'ไม่ลากเส้น' : 'Off')}
+            ${seg('show', true, th ? 'ลากเส้น' : 'On')}
+        </div>
+        <div class="grp"><span class="grp-title">${th ? 'รูปแบบเส้น:' : 'Shape:'}</span>
+            ${seg('shape', 'straight', th ? '➖ เส้นตรง' : '➖ Straight', off)}
+            ${seg('shape', 'curve', th ? '〰️ เส้นโค้ง' : '〰️ Curved', off)}
+        </div>
+        <div class="grp"><span class="grp-title">${th ? 'ลูกศร:' : 'Arrow:'}</span>
+            ${seg('arrow', 'none', th ? 'ไม่มี' : 'None', off)}
+            ${seg('arrow', 'to', th ? '➡️ ไป (ประเทศที่เลือกก่อน → หลัง)' : '➡️ Forward (earlier → later selected)', off)}
+            ${seg('arrow', 'from', th ? '⬅️ มา (ประเทศที่เลือกหลัง → ก่อน)' : '⬅️ Backward (later → earlier selected)', off)}
+            ${seg('arrow', 'both', th ? '↔️ ไป-มา' : '↔️ Both', off)}
+        </div>
+        ${slots.length < 2 && linkOpts.show ? `<div style="font-size:0.82rem;color:#b45309;">${th ? '⚠️ ต้องเลือกอย่างน้อย 2 ประเทศจึงจะมีเส้นโยง' : '⚠️ Select at least 2 countries to draw links'}</div>` : ''}
+    `;
+}
+
+// คำนวณจุดบนเส้นทาง (พิกเซลที่ระดับซูมปัจจุบัน) ตั้งแต่ A ไป B
+function buildLinkPath(a, b, shape) {
+    const z = mapInstance.getZoom();
+    const pa = mapInstance.project(L.latLng(a), z);
+    const pb = mapInstance.project(L.latLng(b), z);
+    if (shape !== 'curve') return [pa, pb];
+    const mx = (pa.x + pb.x) / 2, my = (pa.y + pb.y) / 2;
+    const dx = pb.x - pa.x, dy = pb.y - pa.y;
+    const len = Math.hypot(dx, dy) || 1;
+    // เลื่อนจุดควบคุมตั้งฉากกับเส้น (โค้งขึ้นด้านบนของจอเสมอ)
+    let nx = -dy / len, ny = dx / len;
+    if (ny > 0) { nx = -nx; ny = -ny; }
+    const bend = len * 0.28;
+    const cx = mx + nx * bend, cy = my + ny * bend;
+    const pts = [];
+    for (let i = 0; i <= 40; i++) {
+        const t = i / 40, u = 1 - t;
+        pts.push(L.point(u * u * pa.x + 2 * u * t * cx + t * t * pb.x, u * u * pa.y + 2 * u * t * cy + t * t * pb.y));
+    }
+    return pts;
+}
+
+// วาดหัวลูกศรที่ปลาย "end" ชี้ตามทิศของจุดก่อนหน้า
+function arrowHeadAt(pts, atEnd, color) {
+    const z = mapInstance.getZoom();
+    const n = pts.length;
+    // เลื่อนหัวลูกศรถอยเข้ามาจากจุดศูนย์กลางประเทศ เพื่อไม่ให้ถูกจุดวงกลมบัง
+    const back = 16;
+    let idxTip, idxRef;
+    if (atEnd) { idxTip = n - 1; idxRef = n - 2; } else { idxTip = 0; idxRef = 1; }
+    const tip0 = pts[idxTip], ref = pts[idxRef];
+    let dx = tip0.x - ref.x, dy = tip0.y - ref.y;
+    let len = Math.hypot(dx, dy) || 1;
+    dx /= len; dy /= len;
+    const tip = L.point(tip0.x - dx * back, tip0.y - dy * back);
+    const size = 13;
+    const left = L.point(tip.x - dx * size - dy * size * 0.55, tip.y - dy * size + dx * size * 0.55);
+    const right = L.point(tip.x - dx * size + dy * size * 0.55, tip.y - dy * size - dx * size * 0.55);
+    const toLL = pt => mapInstance.unproject(pt, z);
+    return L.polygon([toLL(tip), toLL(left), toLL(right)], {
+        pane: 'linkPane', color: '#ffffff', weight: 1.5, fillColor: color, fillOpacity: 1, interactive: false
+    });
+}
+
+function drawCountryLinks() {
+    if (!mapInstance || !linkLayerGroup) return;
+    linkLayerGroup.clearLayers();
+    if (!linkOpts.show || slots.length < 2) return;
+
+    const z = mapInstance.getZoom();
+    for (let i = 0; i < slots.length; i++) {
+        for (let j = i + 1; j < slots.length; j++) {
+            const A = slots[i].country.latlng, B = slots[j].country.latlng;
+            const pts = buildLinkPath(A, B, linkOpts.shape);
+            const latlngs = pts.map(pt => mapInstance.unproject(pt, z));
+
+            // เส้นขอบขาวรองด้านล่างเพื่อให้เส้นเด่นบนทุกสีพื้น
+            L.polyline(latlngs, { pane: 'linkPane', color: '#ffffff', weight: 6, opacity: 0.9, interactive: false, lineCap: 'round' }).addTo(linkLayerGroup);
+            L.polyline(latlngs, { pane: 'linkPane', color: '#0f172a', weight: 3, opacity: 1, interactive: false, lineCap: 'round' }).addTo(linkLayerGroup);
+
+            // ไป = ลูกศรชี้ไปยังประเทศลำดับหลัง (j), มา = ชี้กลับมาที่ประเทศลำดับแรก (i)
+            if (linkOpts.arrow === 'to' || linkOpts.arrow === 'both') arrowHeadAt(pts, true, '#0f172a').addTo(linkLayerGroup);
+            if (linkOpts.arrow === 'from' || linkOpts.arrow === 'both') arrowHeadAt(pts, false, '#0f172a').addTo(linkLayerGroup);
+        }
+    }
+}
+
+// 7. ประมวลผลทฤษฎีเกมพหุภาคี (N-Player Game Theory) และสมดุลแนช
+function clearAnalysis() {
+    [radarChartInst, barChartInst, lineChartInst].forEach(c => { if (c) c.destroy(); });
+    radarChartInst = barChartInst = lineChartInst = null;
+    const nc = document.getElementById('networkCanvas');
+    if (nc) { const ctx = nc.getContext('2d'); ctx.clearRect(0, 0, nc.width, nc.height); }
+    ['theadPayoff','tbodyPayoff','theadBreakdown','tbodyBreakdown','theadPairwise','tbodyPairwise','nashGridContainer','gtAdvancedBody']
+        .forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+    const banner = document.getElementById('statusBanner');
+    if (banner) {
+        banner.className = 'status-banner';
+        banner.innerText = currentLang === 'th'
+            ? 'กรุณาเลือกอย่างน้อย 2 ประเทศเพื่อเริ่มประมวลผล'
+            : 'Please select at least 2 countries to start the analysis';
+    }
+}
+
+function hideResults() {
+    const ra = document.getElementById('resultsArea');
+    if (ra) ra.style.display = 'none';
+    clearAnalysis();
+}
+
+// ปุ่ม "ประมวลผล": แสดงผลลัพธ์ครั้งแรก
+function startProcessing() {
+    if (slots.length < 2) {
+        alert(currentLang === 'th'
+            ? 'กรุณาเลือกประเทศอย่างน้อย 2 ประเทศก่อนกดประมวลผล'
+            : 'Please select at least 2 countries before processing.');
+        return;
+    }
+    hasProcessed = true;
+    document.getElementById('resultsArea').style.display = 'block';
+    setDisplayMode(displayMode);
+    runSimulation();
+    setDisplayMode(displayMode);   // ปรับขนาดกราฟอีกครั้งหลังข้อมูลพร้อม
+    document.getElementById('resultsArea').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// เรียกซ้ำอัตโนมัติเมื่อปรับค่า "หลังจากประมวลผลแล้วเท่านั้น"
+function processSimulation() {
+    if (!hasProcessed) return;
+    if (slots.length < 2) { hasProcessed = false; hideResults(); return; }
+    runSimulation();
+}
+
+const EPS = 1e-9;
+const P5_VETO = new Set(['USA', 'CHN', 'RUS', 'GBR', 'FRA']);   // สมาชิกถาวร UNSC มีสิทธิยับยั้ง
+const T = (th, en) => currentLang === 'th' ? th : en;
+const r1 = v => Math.round(v * 10) / 10;
+const nmOf = s => T(s.country.nameTH, s.country.nameEN);
+let gtCtx = null;
+
+function runSimulation() {
+    if (slots.length < 2) { clearAnalysis(); return; }
+    const N = slots.length;
+    const unLevel = parseInt(document.getElementById('un').value);
+    const tensionLevel = parseInt(document.getElementById('tension').value);
+    const unSanction = unLevel * 0.6;
+
+    slots.forEach(s => {
+        s.effPower = +(s.mil * 0.6 + s.eco * 0.25 + s.sup * 0.15).toFixed(1);
+        s.baseWarCost = +((s.trade * 0.8) + ((100 - s.eco) * 0.4) + ((100 - s.sup) * 0.3)).toFixed(1);
+        s.veto = P5_VETO.has(s.country.cca3);
+    });
+    const totalPower = slots.reduce((acc, s) => acc + s.effPower, 0);
+    slots.forEach(s => { s.powerShare = s.effPower / totalPower; });
+    const mean = (arr, f) => arr.reduce((a, x) => a + f(x), 0) / arr.length;
+
+    // ---- ฟังก์ชันผลตอบแทน (ค่าทศนิยมเต็ม ไม่ปัดเศษก่อนเปรียบเทียบ) ----
+    // ผู้เล่น W: EU = p*V - (1-p)*L - C - ค่าคว่ำบาตร UN - ต้นทุนนิวเคลียร์ (เฉพาะเมื่อ "เป้าหมาย" มีนิวเคลียร์) + ความเป็นเหยี่ยว + แรงตึงเครียด
+    // ผู้เล่น P ที่ถูกโจมตี: สูญเสียตามผลประโยชน์ผู้โจมตี ลดลงตามกำลังทหารของตนเอง (การป้องกันเชิงรับ)
+    const payoffFor = (profile, idx, customTension = null) => {
+        const s = slots[idx];
+        const tPush = (customTension !== null ? customTension : tensionLevel) * 0.25;
+        const war = [];
+        profile.forEach((a, i) => { if (a === 'W') war.push(i); });
+        if (war.length === 0) return s.eco * 0.4 + s.trade * 0.6 - tPush * 0.5;
+
+        if (profile[idx] === 'W') {
+            const targets = slots.filter((_, j) => j !== idx && profile[j] === 'P');
+            const opp = targets.length ? targets : slots.filter((_, j) => j !== idx);
+            const pWin = s.effPower / (s.effPower + mean(opp, o => o.effPower));   // Contest Success Function (Tullock r=1)
+            const V = s.gain * (targets.length ? 1.3 : 1.0);                       // รางวัลชนะ (โจมตีผู้ไม่สู้ได้เปรียบผู้ลงมือก่อน)
+            const L = s.gain * 0.5;                                                // ความสูญเสียเมื่อแพ้
+            const C = s.baseWarCost * (targets.length === N - 1 ? 0.6 : 1.0);
+            const sanction = unSanction * (war.length === 1 ? 1.0 : 0.6) * (s.veto ? 0.35 : 1.0);
+            const nukeCost = opp.some(o => o.nuke) ? (s.nuke ? 200 : 150) : 0;     // ถูกตอบโต้นิวเคลียร์ (MAD ถ้าสองฝ่ายมี)
+            return pWin * V - (1 - pWin) * L - C - sanction - nukeCost + s.lead + tPush;
+        }
+        const att = war.map(i => slots[i]);
+        const defence = 1 - 0.4 * (s.mil / 100);
+        const coerce = (att.some(a => a.nuke) && !s.nuke) ? 60 : 0;
+        return -(mean(att, a => a.gain) * 0.8 * defence) - s.baseWarCost * 0.5 - coerce;
+    };
+    const computeProfilePayoffs = (profile, customTension = null) => slots.map((_, i) => payoffFor(profile, i, customTension));
+
+    const bit = i => 1 << (N - 1 - i);
+    const profOf = m => slots.map((_, i) => (m & bit(i)) ? 'W' : 'P');
+    const flip = (prof, i) => { const q = [...prof]; q[i] = q[i] === 'P' ? 'W' : 'P'; return q; };
+    const allP = slots.map(() => 'P'), allW = slots.map(() => 'W');
+
+    // ---- ค้นหาสมดุลแนชแบบกลยุทธ์แท้ ----
+    const FULL_LIMIT = 12;
+    const full = N <= FULL_LIMIT;
+    let scoresAll = null;
+    const nashRaw = [];
+    if (full) {
+        const M = 1 << N;
+        scoresAll = new Array(M);
+        for (let m = 0; m < M; m++) scoresAll[m] = computeProfilePayoffs(profOf(m));
+        for (let m = 0; m < M; m++) {
+            let weak = true, strict = true;
+            for (let i = 0; i < N; i++) {
+                const d = scoresAll[m][i] - scoresAll[m ^ bit(i)][i];
+                if (d < -EPS) { weak = false; break; }
+                if (d <= EPS) strict = false;
+            }
+            if (weak) nashRaw.push({ profile: profOf(m), strict });
+        }
+    } else {
+        // N > 12: ใช้ Best-Response Dynamics จากหลายจุดเริ่มต้น (ผลเป็นการประมาณ อาจไม่ครบทุกสมดุล)
+        let seed = 12345;
+        const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+        const starts = [allP, allW];
+        for (let k = 0; k < 40; k++) starts.push(slots.map(() => rnd() < 0.5 ? 'W' : 'P'));
+        const seen = new Set();
+        starts.forEach(st => {
+            let cur = [...st];
+            for (let it = 0; it < 100; it++) {
+                let moved = false;
+                for (let i = 0; i < N; i++) {
+                    const alt = flip(cur, i);
+                    if (payoffFor(alt, i) > payoffFor(cur, i) + EPS) { cur = alt; moved = true; }
+                }
+                if (!moved) break;
+            }
+            const key = cur.join('');
+            if (seen.has(key)) return;
+            const weak = slots.every((_, i) => payoffFor(cur, i) >= payoffFor(flip(cur, i), i) - EPS);
+            if (!weak) return;
+            seen.add(key);
+            nashRaw.push({ profile: cur, strict: slots.every((_, i) => payoffFor(cur, i) > payoffFor(flip(cur, i), i) + EPS) });
+        });
+    }
+
+    const mk = prof => {
+        const raw = computeProfilePayoffs(prof);
+        const brs = slots.map((_, i) => raw[i] >= payoffFor(flip(prof, i), i) - EPS);
+        return { profile: prof, raw, scores: raw.map(r1), bestResponses: brs, isNash: brs.every(Boolean) };
+    };
+    const paretoOpt = sc => !scoresAll.some(o => o.every((v, i) => v >= sc[i] - EPS) && o.some((v, i) => v > sc[i] + EPS));
+
+    const nashProfiles = nashRaw.map(n => {
+        const o = mk(n.profile);
+        o.strict = n.strict;
+        o.pareto = full ? paretoOpt(o.raw) : null;
+        o.welfare = o.raw.reduce((a, b) => a + b, 0);
+        return o;
+    }).sort((a, b) => ((b.pareto === true) - (a.pareto === true)) || (b.welfare - a.welfare));
+
+    let displayProfiles;
+    if (N <= 5) {
+        displayProfiles = Array.from({ length: 1 << N }, (_, m) => mk(profOf(m)));
+    } else {
+        const seenK = new Set(); displayProfiles = [];
+        const add = prof => { const k = prof.join(''); if (!seenK.has(k)) { seenK.add(k); displayProfiles.push(mk(prof)); } };
+        add(allP); add(allW);
+        slots.forEach((_, i) => { add(slots.map((_, j) => j === i ? 'W' : 'P')); add(slots.map((_, j) => j === i ? 'P' : 'W')); });
+        nashRaw.forEach(n => add(n.profile));
+    }
+
+    // ---- ค่าสรุปรายประเทศ ----
+    const ppScores = computeProfilePayoffs(allP), awScores = computeProfilePayoffs(allW);
+    slots.forEach((s, i) => {
+        const solo = slots.map((_, j) => j === i ? 'W' : 'P');
+        const def = slots.map((_, j) => j === i ? 'P' : 'W');
+        const soloV = payoffFor(solo, i);
+        s.payoffPeace = r1(ppScores[i]);
+        s.payoffSoloAttack = r1(soloV);
+        s.payoffDefend = r1(payoffFor(def, i));
+        s.payoffAllWar = r1(awScores[i]);
+        s.warIncentive = r1(soloV - ppScores[i]);
+    });
+
+    // ---- กลยุทธ์เด่น (Dominant Strategy) และ IESDS ----
+    let dom = null, iesds = null;
+    if (full) {
+        const M = 1 << N;
+        dom = slots.map((_, i) => {
+            let sW = true, sP = true, wW = true, wP = true;
+            for (let m = 0; m < M; m++) {
+                if (m & bit(i)) continue;
+                const d = scoresAll[m | bit(i)][i] - scoresAll[m][i];
+                if (d <= EPS) sW = false;
+                if (d >= -EPS) sP = false;
+                if (d < -EPS) wW = false;
+                if (d > EPS) wP = false;
+            }
+            if (sW) return { action: 'W', strict: true };
+            if (sP) return { action: 'P', strict: true };
+            if (wW && !wP) return { action: 'W', strict: false };
+            if (wP && !wW) return { action: 'P', strict: false };
+            return { action: null, strict: false };
+        });
+        const allowed = slots.map(() => ({ P: true, W: true }));
+        const steps = [];
+        let changed = true;
+        while (changed) {
+            changed = false;
+            for (let i = 0; i < N; i++) {
+                if (!(allowed[i].P && allowed[i].W)) continue;
+                let wDom = true, pDom = true;
+                for (let m = 0; m < M; m++) {
+                    if (m & bit(i)) continue;
+                    let ok = true;
+                    for (let j = 0; j < N; j++) {
+                        if (j === i) continue;
+                        if (!allowed[j][(m & bit(j)) ? 'W' : 'P']) { ok = false; break; }
+                    }
+                    if (!ok) continue;
+                    const d = scoresAll[m | bit(i)][i] - scoresAll[m][i];
+                    if (d >= -EPS) wDom = false;
+                    if (d <= EPS) pDom = false;
+                }
+                if (wDom) { allowed[i].W = false; steps.push({ i, elim: 'W' }); changed = true; }
+                else if (pDom) { allowed[i].P = false; steps.push({ i, elim: 'P' }); changed = true; }
+            }
+        }
+        iesds = { allowed, steps };
+    }
+
+    gtCtx = { N, full, nashProfiles, dom, iesds, scoresAll };
+    updateStatusAndNashBanner(nashProfiles);
+    updateRadarChart();
+    updatePayoffBarChart();
+    updateEscalationLineChart(computeProfilePayoffs);
+    drawStrategicNetworkCanvas(nashProfiles);
+    renderTables(displayProfiles, nashProfiles);
+    renderAdvancedGameTheory(gtCtx);
+}
+
+function updateStatusAndNashBanner(nashProfiles) {
+    const banner = document.getElementById('statusBanner');
+    const nashContainer = document.getElementById('nashGridContainer');
+    banner.className = 'status-banner';
+    const pWord = i18n[currentLang].peaceWord;
+    const wWord = i18n[currentLang].warWord;
+    const nukeCount = slots.filter(s => s.nuke).length;
+    const tagsOf = np => np.profile.map((act, i) => `${nmOf(slots[i])}: ${act === 'P' ? pWord : wWord}`).join(' | ');
+    const isAll = (p, a) => p.every(x => x === a);
+
+    // ป้ายสรุปมาจากชุดสมดุลแนชที่คำนวณได้จริงเท่านั้น
+    if (nashProfiles.length === 0) {
+        banner.classList.add('status-tension');
+        banner.innerText = T('ผลลัพธ์ยุทธศาสตร์: ไม่พบสมดุลแนชแบบกลยุทธ์แท้ — ต้องใช้สมดุลแบบผสม (ดูหัวข้อวิเคราะห์เชิงลึก)',
+                             'Strategic Outcome: No pure-strategy Nash equilibrium — mixed-strategy regime (see advanced analysis)');
+    } else if (nashProfiles.length === 1) {
+        const np = nashProfiles[0];
+        if (isAll(np.profile, 'P')) {
+            if (nukeCount >= 2) {
+                banner.classList.add('status-mad');
+                banner.innerText = T(`ผลลัพธ์ยุทธศาสตร์: สันติภาพภายใต้การป้องปรามนิวเคลียร์ (สมดุลแนชเดียว = สันติภาพทั้งหมด, มีนิวเคลียร์ ${nukeCount} ประเทศ)`,
+                                     `Strategic Outcome: Nuclear-deterrence peace (unique Nash equilibrium = all Peace, ${nukeCount} nuclear states)`);
+            } else {
+                banner.classList.add('status-peace');
+                banner.innerText = T('ผลลัพธ์ยุทธศาสตร์: สันติภาพ (สมดุลแนชเดียวคือทุกประเทศเลือกสันติภาพ)',
+                                     'Strategic Outcome: Peace (the unique Nash equilibrium is all-Peace)');
+            }
+        } else if (isAll(np.profile, 'W')) {
+            banner.classList.add('status-war');
+            banner.innerText = T('ผลลัพธ์ยุทธศาสตร์: สงครามพหุภาคี (สมดุลแนชเดียวคือทุกประเทศเลือกสงคราม — กับดักความมั่นคง)',
+                                 'Strategic Outcome: Multilateral war (unique Nash equilibrium = all War — security-dilemma trap)');
+        } else {
+            banner.classList.add('status-tension');
+            banner.innerText = T(`ผลลัพธ์ยุทธศาสตร์: ความขัดแย้งบางส่วนเป็นสมดุล (${tagsOf(np)})`,
+                                 `Strategic Outcome: Partial conflict is the equilibrium (${tagsOf(np)})`);
+        }
+    } else {
+        banner.classList.add('status-tension');
+        const sel = nashProfiles[0];
+        banner.innerText = T(`ผลลัพธ์ยุทธศาสตร์: พบสมดุลแนช ${nashProfiles.length} จุด (ปัญหาการประสานงาน) — จุดที่เด่นกว่าทาง Pareto/สวัสดิการ: ${tagsOf(sel)}`,
+                             `Strategic Outcome: ${nashProfiles.length} Nash equilibria (coordination problem) — Pareto/welfare-preferred: ${tagsOf(sel)}`);
+    }
+
+    const dom = gtCtx ? gtCtx.dom : null;
+    const countryBoxes = slots.map((s, idx) => {
+        const incStr = s.warIncentive > 0 ? `+${s.warIncentive}` : `${s.warIncentive}`;
+        let domTxt = T('ไม่คำนวณ (เกิน 12 ประเทศ)', 'n/a (more than 12 countries)');
+        if (dom) {
+            const d = dom[idx];
+            domTxt = d.action ? `${d.action === 'P' ? pWord : wWord} (${d.strict ? T('เด่นแท้', 'strict') : T('เด่นอย่างอ่อน', 'weak')})` : T('ไม่มีกลยุทธ์เด่น', 'none');
+        }
+        return `
+        <div class="nash-box" style="border-left: 5px solid ${s.color};">
+            <h4>${nmOf(s)} ${s.nuke ? '☢️' : ''}</h4>
+            • ${T('คะแนนเมื่อสันติภาพทุกฝ่าย', 'Payoff, all-Peace')}: <strong>${s.payoffPeace}</strong><br>
+            • ${T('คะแนนเมื่อโจมตีฝ่ายเดียว', 'Payoff, solo attack')}: <strong>${s.payoffSoloAttack}</strong><br>
+            • ${T('แรงจูงใจโจมตีก่อน (เทียบกรณีทุกฝ่ายสันติ)', 'First-strike incentive (vs all-Peace)')}: <strong>${incStr}</strong><br>
+            • ${T('กลยุทธ์เด่น (Dominant Strategy)', 'Dominant strategy')}: <strong>${domTxt}</strong>
+        </div>`;
+    });
+
+    const eqRows = nashProfiles.map(np => {
+        const badges = [
+            np.strict ? T('เข้ม (strict)', 'strict') : T('อ่อน (weak)', 'weak'),
+            np.pareto === true ? 'Pareto-optimal' : (np.pareto === false ? T('ถูก Pareto ครอบงำ', 'Pareto-dominated') : '')
+        ].filter(Boolean).join(', ');
+        return `<div style="margin-top:4px;">★ <strong>(${tagsOf(np)})</strong> <small>[${badges}]</small></div>`;
+    }).join('');
+    const eqBox = `
+    <div class="nash-box" style="background:#fef08a; border-color:#ca8a04;">
+        <h4>🎯 ${T('จุดสมดุลแนชแบบกลยุทธ์แท้ที่พบ', 'Pure-strategy Nash equilibria found')}</h4>
+        ${nashProfiles.length > 0 ? eqRows : T('ไม่พบสมดุลแบบกลยุทธ์แท้ — ตามทฤษฎีของแนชยังมีสมดุลแบบผสมเสมอ', 'No pure equilibrium — a mixed equilibrium always exists (Nash 1950)')}
+    </div>`;
+    nashContainer.innerHTML = countryBoxes.join('') + eqBox;
+}
+
+// ---------- วิเคราะห์ทฤษฎีเกมเชิงลึก ----------
+function renderAdvancedGameTheory(ctx) {
+    const box = document.getElementById('gtAdvancedBody');
+    document.getElementById('txt-gtTitle').innerText = T('🧠 การวิเคราะห์ทฤษฎีเกมเชิงลึก (Advanced Game-Theoretic Analysis)', '🧠 Advanced Game-Theoretic Analysis');
+    const { N, full, nashProfiles, dom, iesds, scoresAll } = ctx;
+    const pW = i18n[currentLang].peaceWord, wW = i18n[currentLang].warWord;
+    const act = a => a === 'P' ? pW : wW;
+    const tags = np => np.profile.map((a, i) => `${nmOf(slots[i])}: ${act(a)}`).join(' | ');
+    const sec = (title, body) => `<div style="margin-bottom:14px;"><div style="font-weight:700; color:#0369a1; margin-bottom:4px;">${title}</div>${body}</div>`;
+    let html = '';
+
+    // 1) ขอบเขต
+    html += sec(T('1) ขอบเขตการค้นหา', '1) Search scope'), full
+        ? T(`ไล่ตรวจครบทุกชุดกลยุทธ์ 2<sup>${N}</sup> = ${1 << N} ชุด จึงยืนยันได้ว่าสมดุลแนชแบบกลยุทธ์แท้ที่แสดงครบถ้วน`,
+            `All 2<sup>${N}</sup> = ${1 << N} strategy profiles were enumerated, so the pure-strategy equilibria listed are complete.`)
+        : T('⚠️ เกิน 12 ประเทศ ใช้ Best-Response Dynamics จากหลายจุดเริ่มต้น ผลเป็นการประมาณและอาจไม่ครบทุกสมดุล ไม่คำนวณ Pareto/Dominance',
+            '⚠️ More than 12 countries: best-response dynamics from multiple starts — approximate, may miss equilibria; Pareto/dominance skipped.'));
+
+    // 2) สมดุลและการเลือกสมดุล
+    let eqTxt = '';
+    if (nashProfiles.length === 0) eqTxt = T('ไม่มีสมดุลแบบกลยุทธ์แท้', 'No pure-strategy equilibrium.');
+    else {
+        eqTxt = '<ul style="margin:0; padding-left:20px;">' + nashProfiles.map(np =>
+            `<li>(${tags(np)}) — ${np.strict ? T('เข้ม', 'strict') : T('อ่อน', 'weak')}${np.pareto === true ? ', Pareto-optimal' : (np.pareto === false ? T(', ถูก Pareto ครอบงำ (ประสิทธิภาพต่ำ)', ', Pareto-dominated (inefficient)') : '')}, ${T('สวัสดิการรวม', 'welfare')} ${r1(np.welfare)}</li>`).join('') + '</ul>';
+        if (nashProfiles.length > 1)
+            eqTxt += `<div style="margin-top:4px;">${T('เลือกสมดุลด้วยเกณฑ์ Pareto/สวัสดิการรวมสูงสุด →', 'Selected by Pareto/total-welfare dominance →')} <strong>(${tags(nashProfiles[0])})</strong></div>`;
+        if (N === 2 && scoresAll) {
+            const u = (i, a0, a1) => scoresAll[(a0 === 'W' ? 2 : 0) | (a1 === 'W' ? 1 : 0)][i];
+            const hasPP = nashProfiles.some(n => n.strict && n.profile.join('') === 'PP');
+            const hasWW = nashProfiles.some(n => n.strict && n.profile.join('') === 'WW');
+            if (hasPP && hasWW) {
+                const lossPP = (u(0, 'P', 'P') - u(0, 'W', 'P')) * (u(1, 'P', 'P') - u(1, 'P', 'W'));
+                const lossWW = (u(0, 'W', 'W') - u(0, 'P', 'W')) * (u(1, 'W', 'W') - u(1, 'W', 'P'));
+                const rd = lossPP > lossWW + EPS ? T('สันติภาพ (PP)', 'Peace (PP)') : (lossWW > lossPP + EPS ? T('สงคราม (WW)', 'War (WW)') : T('เท่ากัน', 'tie'));
+                eqTxt += `<div style="margin-top:4px;">${T('Risk Dominance (Harsanyi–Selten): เสี่ยงน้อยกว่าคือ', 'Risk dominance (Harsanyi–Selten):')} <strong>${rd}</strong> <small>(${T('ผลคูณความสูญเสียหากอีกฝ่ายเบี่ยง', 'product of deviation losses')}: PP=${r1(lossPP)}, WW=${r1(lossWW)})</small></div>`;
+            }
+        }
+    }
+    html += sec(T('2) สมดุลแนชและการเลือกสมดุล', '2) Nash equilibria & selection'), eqTxt);
+
+    // 3) Dominance + IESDS
+    if (dom) {
+        let d = '<ul style="margin:0; padding-left:20px;">' + slots.map((s, i) => {
+            const x = dom[i];
+            return `<li>${nmOf(s)}: ${x.action ? `${T('กลยุทธ์เด่น', 'dominant')} = <strong>${act(x.action)}</strong> (${x.strict ? T('แท้', 'strict') : T('อย่างอ่อน', 'weak')})` : T('ไม่มีกลยุทธ์เด่น', 'no dominant strategy')}</li>`;
+        }).join('') + '</ul>';
+        const steps = iesds.steps.map((st, k) => `${k + 1}. ${nmOf(slots[st.i])} ${T('ตัดกลยุทธ์', 'drops')} ${act(st.elim)}`).join('; ');
+        const solved = iesds.allowed.every(a => (a.P ? 1 : 0) + (a.W ? 1 : 0) === 1);
+        d += `<div style="margin-top:4px;">IESDS: ${steps || T('ไม่มีกลยุทธ์ที่ถูกครอบงำอย่างเข้ม', 'no strictly dominated strategy')} → ${solved
+            ? T('แก้เกมได้ด้วยการตัดกลยุทธ์ (dominance-solvable)', 'dominance-solvable') + ': ' + slots.map((s, i) => `${nmOf(s)}=${act(iesds.allowed[i].P ? 'P' : 'W')}`).join(', ')
+            : T('ยังเหลือกลยุทธ์ที่ตัดไม่ได้ ต้องพึ่งการวิเคราะห์สมดุลแนช', 'undominated strategies remain; rely on Nash analysis')}</div>`;
+        html += sec(T('3) กลยุทธ์เด่นและการตัดกลยุทธ์ที่ถูกครอบงำ (IESDS)', '3) Dominance & iterated elimination (IESDS)'), d);
+    }
+
+    // 4) เฉพาะ 2 ประเทศ
+    if (N === 2 && scoresAll) {
+        const u = (i, a0, a1) => scoresAll[(a0 === 'W' ? 2 : 0) | (a1 === 'W' ? 1 : 0)][i];
+        const set = new Set(nashProfiles.map(n => n.profile.join('')));
+        let type;
+        if (dom[0].strict && dom[1].strict && dom[0].action === 'W' && dom[1].action === 'W')
+            type = (u(0, 'P', 'P') > u(0, 'W', 'W') && u(1, 'P', 'P') > u(1, 'W', 'W')) ? T("Prisoner's Dilemma (ทั้งคู่เลือกสงครามทั้งที่สันติภาพดีกว่า)", "Prisoner's Dilemma") : T('Deadlock (สงครามเด่นและไม่ด้อยกว่า)', 'Deadlock');
+        else if (dom[0].strict && dom[1].strict && dom[0].action === 'P' && dom[1].action === 'P') type = T('Harmony (สันติภาพเป็นกลยุทธ์เด่นของทั้งคู่)', 'Harmony (Peace dominant for both)');
+        else if (set.has('PP') && set.has('WW')) type = (u(0, 'P', 'P') > u(0, 'W', 'W') && u(1, 'P', 'P') > u(1, 'W', 'W')) ? T('Stag Hunt / Security Dilemma (สมดุล 2 จุด สันติภาพดีกว่าแต่เสี่ยงกว่าถ้าไม่ไว้ใจกัน)', 'Stag Hunt / Security Dilemma') : T('Coordination Game', 'Coordination game');
+        else if (set.has('PW') && set.has('WP')) type = T('Chicken / Hawk-Dove (สมดุล 2 จุด ฝ่ายหนึ่งรุก อีกฝ่ายยอม)', 'Chicken / Hawk-Dove');
+        else if (set.size === 0) type = T('ไม่มีสมดุลกลยุทธ์แท้ (คล้าย Matching Pennies)', 'No pure NE (Matching-Pennies-like)');
+        else type = T('เกมที่มีสมดุลชัดเจน/มีกลยุทธ์เด่นฝ่ายเดียว', 'Single-equilibrium / one-sided dominance game');
+
+        // Mixed NE
+        const a = u(0, 'P', 'P'), b = u(0, 'P', 'W'), c = u(0, 'W', 'P'), d = u(0, 'W', 'W');
+        const A = u(1, 'P', 'P'), B = u(1, 'W', 'P'), C = u(1, 'P', 'W'), D = u(1, 'W', 'W');
+        const den0 = (a - c) + (d - b), den1 = (A - C) + (D - B);
+        let mixed;
+        if (Math.abs(den0) > EPS && Math.abs(den1) > EPS) {
+            const q = (a - c) / den0, pr = (A - C) / den1;
+            mixed = (q > 0 && q < 1 && pr > 0 && pr < 1)
+                ? T(`${nmOf(slots[0])} เลือกสงครามด้วยความน่าจะเป็น <strong>${(pr * 100).toFixed(1)}%</strong>, ${nmOf(slots[1])} เลือกสงคราม <strong>${(q * 100).toFixed(1)}%</strong> (คะแนนคาดหวัง ${r1(a * (1 - q) + b * q)} และ ${r1(A + pr * (B - A))})`,
+                    `${nmOf(slots[0])} plays War with prob. <strong>${(pr * 100).toFixed(1)}%</strong>, ${nmOf(slots[1])} <strong>${(q * 100).toFixed(1)}%</strong> (expected payoffs ${r1(a * (1 - q) + b * q)} and ${r1(A + pr * (B - A))})`)
+                : T('ไม่มีสมดุลแบบผสมที่ใช้ทั้งสองกลยุทธ์ (มีกลยุทธ์เด่น) — สมดุลมีเฉพาะแบบกลยุทธ์แท้', 'No fully mixed equilibrium (a dominant strategy exists) — pure equilibria only');
+        } else mixed = T('ไม่มีสมดุลแบบผสมที่ไม่เสื่อม', 'No non-degenerate mixed equilibrium');
+
+        // Repeated game (grim trigger)
+        let dMax = 0, repOk = true;
+        [0, 1].forEach(i => {
+            const R = i === 0 ? u(0, 'P', 'P') : u(1, 'P', 'P');
+            const Tt = i === 0 ? u(0, 'W', 'P') : u(1, 'P', 'W');
+            const Pn = i === 0 ? u(0, 'W', 'W') : u(1, 'W', 'W');
+            if (R <= Pn + EPS) repOk = false;
+            if (Tt > R + EPS && Tt > Pn + EPS) dMax = Math.max(dMax, (Tt - R) / (Tt - Pn));
+        });
+        const rep = !repOk
+            ? T('สงครามร่วมไม่ใช่การลงโทษที่รุนแรงกว่าสันติภาพ จึงใช้ Grim Trigger ค้ำสันติภาพไม่ได้', 'War is not a worse outcome than peace for both, so grim-trigger cannot enforce peace')
+            : (dMax <= EPS ? T('ไม่มีแรงจูงใจเบี่ยงเบน สันติภาพคงอยู่ได้แม้เป็นเกมครั้งเดียว', 'No deviation incentive; peace holds even one-shot')
+                : T(`สันติภาพเป็นสมดุลของเกมซ้ำ (Grim Trigger, Folk Theorem) ถ้าค่าส่วนลดอนาคต δ ≥ <strong>${dMax.toFixed(2)}</strong> (δ = น้ำหนักที่ให้ผลประโยชน์ในอนาคต)`,
+                    `Peace is sustainable in the repeated game (grim trigger, Folk Theorem) if the discount factor δ ≥ <strong>${dMax.toFixed(2)}</strong>`));
+
+        // Sequential (backward induction)
+        const seq = first => {
+            const second = 1 - first;
+            const val = (aF, aS, i) => first === 0 ? u(i, aF, aS) : u(i, aS, aF);
+            const best = aF => { const sP = val(aF, 'P', second), sW = val(aF, 'W', second); return sW > sP + EPS ? 'W' : 'P'; };
+            const aP = best('P'), aW = best('W');
+            const vP = val('P', aP, first), vW = val('W', aW, first);
+            const aF = vW > vP + EPS ? 'W' : 'P';
+            const aS = aF === 'P' ? aP : aW;
+            return `${nmOf(slots[first])} ${T('ไปก่อน', 'moves first')} → ${nmOf(slots[first])}: <strong>${act(aF)}</strong>, ${nmOf(slots[second])}: <strong>${act(aS)}</strong> (${T('คะแนน', 'payoffs')} ${r1(val(aF, aS, first))} / ${r1(val(aF, aS, second))})`;
+        };
+        html += sec(T('4) เกม 2 ประเทศ: ประเภทเกม สมดุลผสม เกมซ้ำ และเกมต่อเนื่อง', '4) Two-country game: type, mixed NE, repeated & sequential play'),
+            `<ul style="margin:0; padding-left:20px;">
+                <li><strong>${T('ประเภทเกม', 'Game type')}:</strong> ${type}</li>
+                <li><strong>${T('สมดุลแบบผสม (Mixed NE)', 'Mixed NE')}:</strong> ${mixed}</li>
+                <li><strong>${T('เกมซ้ำ', 'Repeated game')}:</strong> ${rep}</li>
+                <li><strong>${T('เกมต่อเนื่อง (Subgame-Perfect, Backward Induction)', 'Sequential (SPNE, backward induction)')}:</strong><br>${seq(0)}<br>${seq(1)}</li>
+            </ul>`);
+    }
+
+    // 5) Fearon bargaining
+    let fe = '<ul style="margin:0; padding-left:20px;">';
+    let dyadCount = 0;
+    for (let i = 0; i < slots.length; i++) for (let j = i + 1; j < slots.length; j++) {
+        if (++dyadCount > 15) continue;   // จำกัดจำนวนคู่ที่แสดง
+        const si = slots[i], sj = slots[j];
+        const p = si.effPower / (si.effPower + sj.effPower);
+        const ci = Math.min(0.45, si.baseWarCost / 200), cj = Math.min(0.45, sj.baseWarCost / 200);
+        const lo = Math.max(0, p - ci), hi = Math.min(1, p + cj);
+        fe += `<li>${nmOf(si)} vs ${nmOf(sj)}: ${T('ส่วนแบ่งของ', 'a share for')} ${nmOf(si)} ${T('ในช่วง', 'in')} <strong>${(lo * 100).toFixed(0)}%–${(hi * 100).toFixed(0)}%</strong> ${T('ดีกว่าทำสงครามสำหรับทั้งสองฝ่าย (ความน่าจะเป็นชนะของ', 'beats war for both (win prob. of')} ${nmOf(si)} = ${(p * 100).toFixed(0)}%)</li>`;
+    }
+    if (dyadCount > 15) fe += `<li style="color:#64748b;">${T(`... และอีก ${dyadCount - 15} คู่ (ดูตารางที่ 3)`, `... and ${dyadCount - 15} more dyads (see Table 3)`)}</li>`;
+    fe += '</ul>' + `<div style="margin-top:4px; color:#475569;">${T('ตามแบบจำลองต่อรองของ Fearon ถ้าสงครามมีต้นทุน จะมีช่วงข้อตกลงที่ดีกว่าสงครามเสมอ สงครามจึงเกิดได้เพราะข้อมูลไม่สมมาตร ปัญหาความน่าเชื่อถือในการผูกมัด หรือสิ่งที่แบ่งไม่ได้ ไม่ใช่เพราะไม่มีทางตกลง', 'In Fearon’s bargaining model costly war always leaves a mutually better deal; war arises from private information, commitment problems or indivisibility.')}</div>`;
+    html += sec(T('5) ช่วงต่อรองรายคู่ (Fearon Bargaining Range)', '5) Dyadic bargaining range (Fearon)'), fe);
+
+    // 6) ข้อจำกัด
+    html += sec(T('6) ข้อสมมติและข้อจำกัดของแบบจำลอง', '6) Model assumptions & limitations'),
+        `<div style="color:#475569;">${T(
+            'เป็นเกมพร้อมกันครั้งเดียว ข้อมูลสมบูรณ์ ผู้เล่นมี 2 ทางเลือก (สันติภาพ/สงคราม) คะแนนใช้ค่าถ่วงน้ำหนักที่ตั้งเอง (ไม่ใช่ค่าที่สอบเทียบกับข้อมูลจริง) ผลลัพธ์จึงใช้เปรียบเทียบเชิงโครงสร้างได้ แต่ไม่ใช่การพยากรณ์ นอกจากนี้ยังไม่ครอบคลุมการเลือกเป้าหมายรายประเทศ กลยุทธ์หลายระดับ ข้อมูลไม่สมบูรณ์ (Bayesian) และพันธมิตร (Coalition/Shapley)',
+            'One-shot simultaneous game, complete information, binary actions; payoff weights are heuristic (not calibrated to data), so results show structure, not forecasts. Not covered: target selection, multi-level actions, incomplete information (Bayesian) and coalitions (Shapley).')}</div>`);
+    box.innerHTML = html;
+}
+
+function updateRadarChart() {
+    const labels = currentLang === 'th'
+        ? ['กำลังทหาร', 'ความมั่นคงเศรษฐกิจ', 'ผลประโยชน์ยุทธศาสตร์', 'การพึ่งพาการค้า', 'แรงสนับสนุน']
+        : ['Military Power', 'Economic Stability', 'Strategic Gain', 'Trade Dependency', 'Support'];
+
+    const datasets = slots.map((s, idx) => ({
+        label: `${currentLang === 'th' ? s.country.nameTH : s.country.nameEN}`,
+        data: [s.mil, s.eco, s.gain, s.trade, s.sup],
+        borderColor: s.color,
+        backgroundColor: s.color + '28',
+        pointBackgroundColor: s.color,
+        borderWidth: 2
+    }));
+
+    const ctx = document.getElementById('radarChart').getContext('2d');
+    if (radarChartInst) radarChartInst.destroy();
+    radarChartInst = new Chart(ctx, {
+        type: 'radar',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { r: { min: 0, max: 100, ticks: { stepSize: 20 } } }
+        }
+    });
+}
+
+function updatePayoffBarChart() {
+    const labels = currentLang === 'th'
+        ? ['สันติภาพร่วมกัน', 'เปิดฉากโจมตีก่อน', 'ถูกโจมตี (ตั้งรับ)', 'สงครามพหุภาคีเต็มรูปแบบ']
+        : ['Mutual Peace', 'Unilateral First Strike', 'Target of Attack (Defend)', 'All-Out Multilateral War'];
+
+    const datasets = slots.map((s, idx) => ({
+        label: `${currentLang === 'th' ? s.country.nameTH : s.country.nameEN}`,
+        data: [s.payoffPeace, s.payoffSoloAttack, s.payoffDefend, s.payoffAllWar],
+        backgroundColor: s.color
+    }));
+
+    const ctx = document.getElementById('payoffBarChart').getContext('2d');
+    if (barChartInst) barChartInst.destroy();
+    barChartInst = new Chart(ctx, {
+        type: 'bar',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+}
+
+function updateEscalationLineChart(computeProfilePayoffs) {
+    const tensionPoints = [0, 20, 40, 60, 80, 100];
+    const datasets = slots.map((s, idx) => {
+        const curve = tensionPoints.map(tVal => {
+            const pScore = computeProfilePayoffs(slots.map(() => 'P'), tVal)[idx];
+            const wScore = computeProfilePayoffs(slots.map((_, j) => j === idx ? 'W' : 'P'), tVal)[idx];
+            return wScore - pScore;
+        });
+        return {
+            label: `${currentLang === 'th' ? s.country.nameTH : s.country.nameEN}`,
+            data: curve,
+            borderColor: s.color,
+            backgroundColor: s.color,
+            tension: 0.25,
+            borderWidth: 2.5
+        };
+    });
+
+    datasets.push({
+        label: currentLang === 'th' ? 'เกณฑ์แบ่งสงคราม (Threshold = 0)' : 'War Threshold (0)',
+        data: [0, 0, 0, 0, 0, 0],
+        borderColor: '#64748b',
+        borderDash: [6, 6],
+        pointRadius: 0,
+        borderWidth: 1.5
+    });
+
+    const ctx = document.getElementById('escalationLineChart').getContext('2d');
+    if (lineChartInst) lineChartInst.destroy();
+    lineChartInst = new Chart(ctx, {
+        type: 'line',
+        data: { labels: tensionPoints.map(p => `${p}%`), datasets },
+        options: { responsive: true, maintainAspectRatio: false }
+    });
+}
+
+function drawStrategicNetworkCanvas(nashProfiles) {
+    const canvas = document.getElementById('networkCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+
+    const cx = W / 2, cy = H / 2;
+    const n = slots.length;
+    const radius = Math.min(W, H) / 2 - 110;   // เว้นขอบให้ป้ายชื่อด้านนอก
+    const FONT = "'Segoe UI', Tahoma, 'Noto Sans Thai', sans-serif";
+
+    const eqProfile = nashProfiles.length > 0
+        ? nashProfiles[0].profile
+        : slots.map(s => s.warIncentive > 0 ? 'W' : 'P');
+
+    const nodes = slots.map((s, i) => {
+        const angle = (i * 2 * Math.PI / n) - (Math.PI / 2);
+        return { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle), ang: angle, slot: s, act: eqProfile[i] };
+    });
+
+    // เส้นเชื่อมระหว่างประเทศ
+    for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+            const ni = nodes[i], nj = nodes[j];
+            const isConflict = (ni.act === 'W' || nj.act === 'W');
+            ctx.beginPath();
+            ctx.moveTo(ni.x, ni.y);
+            ctx.lineTo(nj.x, nj.y);
+            ctx.strokeStyle = isConflict ? '#dc2626' : '#16a34a';
+            ctx.lineWidth = isConflict ? 3 : 2;
+            ctx.setLineDash(isConflict ? [] : [5, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            const mx = (ni.x + nj.x) / 2, my = (ni.y + nj.y) / 2;
+            const probI = Math.round((ni.slot.effPower / (ni.slot.effPower + nj.slot.effPower)) * 100);
+            const txt = `${probI}%:${100 - probI}%`;
+            ctx.font = `bold 12px ${FONT}`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const tw = ctx.measureText(txt).width;
+            ctx.fillStyle = 'rgba(255,255,255,0.92)';
+            ctx.fillRect(mx - tw / 2 - 3, my - 9, tw + 6, 18);
+            ctx.fillStyle = '#334155';
+            ctx.fillText(txt, mx, my);
+        }
+    }
+
+    const placed = [];
+    nodes.forEach(nd => {
+        const nodeR = Math.max(26, Math.min(36, Math.round(nd.slot.effPower * 0.36)));
+        ctx.beginPath();
+        ctx.arc(nd.x, nd.y, nodeR, 0, Math.PI * 2);
+        ctx.fillStyle = nd.slot.color;
+        ctx.fill();
+        ctx.strokeStyle = nd.act === 'W' ? '#facc15' : '#ffffff';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        // รหัสประเทศในวงกลม (ขาวมีขอบเข้ม เพื่อให้อ่านได้เสมอ)
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `bold 13px ${FONT}`;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(15,23,42,0.75)';
+        ctx.strokeText(nd.slot.country.cca3, nd.x, nd.y);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(nd.slot.country.cca3, nd.x, nd.y);
+
+        // ป้ายชื่อ 2 บรรทัด วางด้านนอกวงกลม และจำกัดไม่ให้เกินขอบภาพ
+        const cName = currentLang === 'th' ? nd.slot.country.nameTH : nd.slot.country.nameEN;
+        const postureTxt = nd.act === 'W'
+            ? (currentLang === 'th' ? '⚔️ รบ' : '⚔️ War')
+            : (currentLang === 'th' ? '🕊️ สันติ' : '🕊️ Peace');
+        ctx.font = `bold 13px ${FONT}`;
+        const w1 = ctx.measureText(cName).width;
+        ctx.font = `12px ${FONT}`;
+        const w2 = ctx.measureText(postureTxt).width;
+        const lw = Math.max(w1, w2);
+        const dist = nodeR + 24;
+        let lx = nd.x + Math.cos(nd.ang) * dist * (n > 1 ? 1 : 0);
+        let ly = nd.y + Math.sin(nd.ang) * dist;
+        if (n === 1) ly = nd.y - dist;
+        lx = Math.max(lw / 2 + 8, Math.min(W - lw / 2 - 8, lx));
+        ly = Math.max(24, Math.min(H - 24, ly));
+
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#ffffff';
+        ctx.fillStyle = '#0f172a';
+        ctx.font = `bold 13px ${FONT}`;
+        ctx.strokeText(cName, lx, ly - 8);
+        ctx.fillText(cName, lx, ly - 8);
+        ctx.font = `12px ${FONT}`;
+        ctx.fillStyle = nd.act === 'W' ? '#b91c1c' : '#15803d';
+        ctx.strokeText(postureTxt, lx, ly + 8);
+        ctx.fillText(postureTxt, lx, ly + 8);
+    });
+    ctx.textBaseline = 'alphabetic';
+}
+
+function renderTables(evaluatedProfiles, nashProfiles) {
+    const pWord = i18n[currentLang].peaceWord;
+    const wWord = i18n[currentLang].warWord;
+
+    const thead1 = document.getElementById('theadPayoff');
+    const tbody1 = document.getElementById('tbodyPayoff');
+
+    if (slots.length === 2) {
+        const nameA = currentLang === 'th' ? slots[0].country.nameTH : slots[0].country.nameEN;
+        const nameB = currentLang === 'th' ? slots[1].country.nameTH : slots[1].country.nameEN;
+
+        thead1.innerHTML = `
+            <tr>
+                <th>${nameA} \\ ${nameB}</th>
+                <th>${nameB}: ${pWord} (Peace)</th>
+                <th>${nameB}: ${wWord} (War)</th>
+            </tr>`;
+
+        const findProf = (a, b) => evaluatedProfiles.find(p => p.profile[0] === a && p.profile[1] === b);
+        const pp = findProf('P', 'P');
+        const pw = findProf('P', 'W');
+        const wp = findProf('W', 'P');
+        const ww = findProf('W', 'W');
+
+        const fmtCell = (obj) => {
+            const mA = obj.bestResponses[0] ? '✓' : '';
+            const mB = obj.bestResponses[1] ? '✓' : '';
+            const badge = obj.isNash ? `<span class="badge-nash">Nash Equilibrium</span>` : '';
+            return `<td class="${obj.isNash ? 'nash-cell' : ''}">
+                <strong>${obj.scores[0]}${mA} , ${obj.scores[1]}${mB}</strong> ${badge}
+            </td>`;
+        };
+
+        tbody1.innerHTML = `
+            <tr>
+                <th>${nameA}: ${pWord} (Peace)</th>
+                ${fmtCell(pp)}
+                ${fmtCell(pw)}
+            </tr>
+            <tr>
+                <th>${nameA}: ${wWord} (War)</th>
+                ${fmtCell(wp)}
+                ${fmtCell(ww)}
+            </tr>`;
+    } else {
+        const countryHeaders = slots.map((s, i) => `<th>${currentLang === 'th' ? s.country.nameTH : s.country.nameEN}</th>`).join('');
+        thead1.innerHTML = `
+            <tr>
+                <th>${currentLang === 'th' ? 'ลำดับ' : 'No.'}</th>
+                ${countryHeaders}
+                <th>${currentLang === 'th' ? 'ผลตอบแทน (Payoffs)' : 'Payoffs'}</th>
+                <th>${currentLang === 'th' ? 'สวัสดิการรวม' : 'Total Welfare'}</th>
+                <th>Nash Equilibrium</th>
+            </tr>`;
+
+        tbody1.innerHTML = evaluatedProfiles.map((ep, idx) => {
+            const cols = ep.profile.map((act, i) => {
+                const brMark = ep.bestResponses[i] ? ' ✓' : '';
+                return `<td>${act === 'P' ? pWord : wWord}<strong>${brMark}</strong></td>`;
+            }).join('');
+            const totalW = ep.scores.reduce((a, b) => a + b, 0);
+            const nashTxt = ep.isNash ? '★ Nash Equilibrium' : '-';
+            return `
+            <tr class="${ep.isNash ? 'nash-cell' : ''}">
+                <td>${idx + 1}</td>
+                ${cols}
+                <td><strong>(${ep.scores.join(' , ')})</strong></td>
+                <td>${totalW}</td>
+                <td>${nashTxt}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    const thead2 = document.getElementById('theadBreakdown');
+    const tbody2 = document.getElementById('tbodyBreakdown');
+    thead2.innerHTML = currentLang === 'th' ? `
+        <tr>
+            <th>ประเทศ</th>
+            <th>ประชากรจริง</th>
+            <th>GDP จริง ($B)</th>
+            <th>งบกลาโหม (%GDP)</th>
+            <th>การค้า (%GDP)</th>
+            <th>นิวเคลียร์</th>
+            <th>ดัชนีอำนาจรวม (Effective Power)</th>
+            <th>สัดส่วนอำนาจ</th>
+            <th>ต้นทุนสงครามพื้นฐาน</th>
+        </tr>` : `
+        <tr>
+            <th>Country</th>
+            <th>Population</th>
+            <th>Real GDP ($B)</th>
+            <th>Mil Exp (%GDP)</th>
+            <th>Trade (%GDP)</th>
+            <th>Nuclear</th>
+            <th>Effective Power Index</th>
+            <th>Power Share</th>
+            <th>Base War Cost</th>
+        </tr>`;
+
+    tbody2.innerHTML = slots.map((s, i) => {
+        const cName = currentLang === 'th' ? `${s.country.nameTH} (${s.country.cca3})` : `${s.country.nameEN} (${s.country.cca3})`;
+        return `
+        <tr>
+            <td style="text-align:left; font-weight:700; color:${s.color};">#${i+1} ${cName}</td>
+            <td>${s.realStats.popM}M</td>
+            <td>$${s.realStats.gdpB}B</td>
+            <td>${s.realStats.milPct}%</td>
+            <td>${s.realStats.tradePct}%</td>
+            <td>${s.nuke ? '☢️ Yes' : 'No'}</td>
+            <td><strong>${s.effPower}</strong></td>
+            <td>${Math.round(s.powerShare * 100)}%</td>
+            <td>-${s.baseWarCost}</td>
+        </tr>`;
+    }).join('');
+
+    const thead3 = document.getElementById('theadPairwise');
+    const tbody3 = document.getElementById('tbodyPairwise');
+    thead3.innerHTML = currentLang === 'th' ? `
+        <tr>
+            <th>คู่ประเทศ (Dyad)</th>
+            <th>ดัชนีอำนาจ (ฝ่ายที่ 1 vs ฝ่ายที่ 2)</th>
+            <th>โอกาสชนะตามรูปแบบปกติ</th>
+            <th>สถานะนิวเคลียร์ระหว่างคู่</th>
+            <th>การประเมินดุลยภาพเชิงยุทธศาสตร์</th>
+        </tr>` : `
+        <tr>
+            <th>Bilateral Dyad</th>
+            <th>Effective Power (Side 1 vs Side 2)</th>
+            <th>Conventional Win Probability</th>
+            <th>Dyadic Nuclear Status</th>
+            <th>Strategic Balance Assessment</th>
+        </tr>`;
+
+    const dyadRows = [];
+    for (let i = 0; i < slots.length; i++) {
+        for (let j = i + 1; j < slots.length; j++) {
+            const s1 = slots[i];
+            const s2 = slots[j];
+            const n1 = currentLang === 'th' ? s1.country.nameTH : s1.country.nameEN;
+            const n2 = currentLang === 'th' ? s2.country.nameTH : s2.country.nameEN;
+            const p1 = Math.round((s1.effPower / (s1.effPower + s2.effPower)) * 100);
+            const p2 = 100 - p1;
+
+            let nukeState = currentLang === 'th' ? 'ปลอดนิวเคลียร์ทั้งคู่' : 'Non-Nuclear Dyad';
+            if (s1.nuke && s2.nuke) nukeState = currentLang === 'th' ? 'สภาวะ MAD (มีทั้งคู่)' : 'Mutual Nuclear Deterrence (MAD)';
+            else if (s1.nuke || s2.nuke) nukeState = currentLang === 'th' ? 'นิวเคลียร์อสมมาตร (ฝ่ายเดียว)' : 'Asymmetric Nuclear Monopoly';
+
+            const advTxt = Math.abs(p1 - p2) <= 8
+                ? (currentLang === 'th' ? 'ดุลอำนาจใกล้เคียงกันมาก' : 'Symmetric Power Parity')
+                : (p1 > p2
+                    ? (currentLang === 'th' ? `${n1} ได้เปรียบเชิงโครงสร้าง` : `${n1} Structural Advantage`)
+                    : (currentLang === 'th' ? `${n2} ได้เปรียบเชิงโครงสร้าง` : `${n2} Structural Advantage`));
+
+            dyadRows.push(`
+                <tr>
+                    <td style="font-weight:700;">${n1} vs ${n2}</td>
+                    <td>${s1.effPower} : ${s2.effPower}</td>
+                    <td><strong>${p1}% : ${p2}%</strong></td>
+                    <td>${nukeState}</td>
+                    <td>${advTxt}</td>
+                </tr>`);
+        }
+    }
+    tbody3.innerHTML = dyadRows.join('');
+}
+
+function setDisplayMode(mode) {
+    displayMode = mode;
+    document.getElementById('btn-viewGraph').classList.toggle('active', mode === 'graph');
+    document.getElementById('btn-viewTable').classList.toggle('active', mode === 'table');
+    document.getElementById('btn-viewBoth').classList.toggle('active', mode === 'both');
+
+    document.getElementById('graphViewSection').style.display = (mode === 'graph' || mode === 'both') ? 'block' : 'none';
+    document.getElementById('tableViewSection').style.display = (mode === 'table' || mode === 'both') ? 'block' : 'none';
+    // กราฟที่สร้างตอนถูกซ่อนอยู่ต้องปรับขนาดใหม่เมื่อแสดงขึ้นมา
+    if (mode === 'graph' || mode === 'both') {
+        [radarChartInst, barChartInst, lineChartInst].forEach(c => { if (c) c.resize(); });
+    }
+}
+
+function toggleLanguage() {
+    currentLang = currentLang === 'th' ? 'en' : 'th';
+    const t = i18n[currentLang];
+
+    document.getElementById('txt-mainTitle').innerText = t.mainTitle;
+    document.getElementById('txt-subTitle').innerText = t.subTitle;
+    document.getElementById('btn-addCountry').innerText = t.addCountry;
+    document.getElementById('btn-process').innerText = t.processBtn;
+    const p2 = document.getElementById('btn-process2'); if (p2) p2.innerText = t.processBtn;
+    document.getElementById('btn-reset').innerText = t.resetBtn;
+    document.getElementById('btn-exportAll').innerText = t.exportAll;
+    document.getElementById('btn-lang').innerText = t.switchLang;
+
+    document.getElementById('txt-globalHeader').innerText = t.globalHeader;
+    document.getElementById('lbl-un').innerText = t.lblUn;
+    document.getElementById('lbl-tension').innerText = t.lblTension;
+
+    document.getElementById('txt-mapTitle').innerText = t.mapTitle;
+    document.getElementById('btn-dlMap').innerText = t.dlMap;
+    document.getElementById('desc-map').innerHTML = t.descMap;
+
+    document.getElementById('txt-nashSectionTitle').innerText = t.nashSectionTitle;
+    document.getElementById('desc-nashConcept').innerHTML = t.nashConcept;
+
+    document.getElementById('txt-viewModeLabel').innerText = t.viewModeLabel;
+    document.getElementById('btn-viewGraph').innerText = t.viewGraph;
+    document.getElementById('btn-viewTable').innerText = t.viewTable;
+    document.getElementById('btn-viewBoth').innerText = t.viewBoth;
+
+    document.getElementById('txt-chart1Title').innerText = t.chart1Title;
+    document.getElementById('txt-chart2Title').innerText = t.chart2Title;
+    document.getElementById('txt-chart3Title').innerText = t.chart3Title;
+    document.getElementById('txt-chart4Title').innerText = t.chart4Title;
+
+    ['1', '2', '3', '4'].forEach(n => document.getElementById('btn-dlChart' + n).innerText = t.dlPng);
+    ['1', '2', '3'].forEach(n => document.getElementById('btn-dlTable' + n).innerText = t.dlExcel);
+
+    document.getElementById('desc-chart1').innerHTML = t.descChart1;
+    document.getElementById('desc-chart2').innerHTML = t.descChart2;
+    document.getElementById('desc-chart3').innerHTML = t.descChart3;
+    document.getElementById('desc-chart4').innerHTML = t.descChart4;
+
+    document.getElementById('txt-table1Title').innerText = t.table1Title;
+    document.getElementById('txt-table2Title').innerText = t.table2Title;
+    document.getElementById('txt-table3Title').innerText = t.table3Title;
+
+    document.getElementById('desc-table1').innerHTML = t.descTable1;
+    document.getElementById('desc-table2').innerHTML = t.descTable2;
+    document.getElementById('desc-table3').innerHTML = t.descTable3;
+
+    renderCountryCards();
+    updateMapLayers();
+    processSimulation();
+}
+
+function downloadCanvasPNG(canvasId, filename) {
+    const canvas = document.getElementById(canvasId);
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = canvas.toDataURL('image/png', 1.0);
+    link.click();
+}
+
+async function downloadMapPNG() {
+    const mapEl = document.getElementById('worldMap');
+    const canvas = await html2canvas(mapEl, { useCORS: true, backgroundColor: '#a9cde8' });
+    const link = document.createElement('a');
+    link.download = 'strategic_world_map.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+}
+
+function exportSingleTableToExcel(tableId, sheetName) {
+    const tableEl = document.getElementById(tableId);
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.table_to_sheet(tableEl);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    XLSX.writeFile(wb, `${sheetName}.xlsx`);
+}
+
+function exportAllTablesToExcel() {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tablePayoff')), '1_Payoff_Nash_Table');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tableBreakdown')), '2_RealData_Power_Index');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tablePairwise')), '3_Pairwise_Assessment');
+    XLSX.writeFile(wb, 'Multilateral_Strategic_Decision_Analysis.xlsx');
+}
+
+toggleLanguage();
+toggleLanguage();
+</script>
+
+</body>
+</html>
